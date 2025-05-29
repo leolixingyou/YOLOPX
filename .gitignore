@@ -5,3 +5,4 @@ bdd100k/labels/
 *__pycache__
 *.mp4
 inference/
+onnx/

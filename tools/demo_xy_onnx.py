@@ -4,6 +4,7 @@ import shutil
 import time
 from pathlib import Path
 import imageio
+import onnxruntime as ort
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(BASE_DIR)
@@ -39,6 +40,15 @@ transform=transforms.Compose([
         ])
 
 
+import torch.nn.functional as F
+
+def resize_input_to_match_model(img, target_size=(640, 640)):
+    """将输入图像调整到模型期望的尺寸"""
+    if img.shape[-2:] != target_size:
+        img = F.interpolate(img, size=target_size, mode='bilinear', align_corners=False)
+    return img
+
+
 def detect(cfg,opt):
 
     logger = None
@@ -48,14 +58,13 @@ def detect(cfg,opt):
     
     half = device.type != 'cpu'  # half precision only supported on CUDA
 
-    # Load model
-    model = get_net(cfg)
-    checkpoint = torch.load(opt.weights, map_location= device)
-    model.load_state_dict(checkpoint['state_dict'])
-    # model.fuse()
-    model = model.to(device)
-    if half:
-        model.half()  # to FP16
+    # Load ONNX model
+    ort_session = ort.InferenceSession(opt.weights)
+    input_name = ort_session.get_inputs()[0].name
+    output_names = [output.name for output in ort_session.get_outputs()]
+
+    print(f"ONNX模型输入: {input_name}")
+    print(f"ONNX模型输出: {output_names}")
 
     # Set Dataloader
     if opt.source.isnumeric():
@@ -67,14 +76,13 @@ def detect(cfg,opt):
         bs = 1  # batch_size
 
     # Get names and colors
-    names = model.module.names if hasattr(model, 'module') else model.names
+    names = ['car', 'truck', 'bus', 'person', 'bike', 'motor']  # 根据你的模型调整
     colors = [[random.randint(0, 255) for _ in range(3)] for _ in range(len(names))]
 
     # Run inference
     vid_path, vid_writer = None, None
-    img = torch.zeros((1, 3, opt.img_size, opt.img_size), device=device)  # init img
-    _ = model(img.half() if half else img) if device.type != 'cpu' else None  # run once
-    model.eval()
+    dummy_input = np.zeros((1, 3, 384, opt.img_size), dtype=np.float32)
+    _ = ort_session.run(output_names, {input_name: dummy_input})  # run once
 
     # # flops and params
     # # ------------------------start--------------------------
@@ -108,9 +116,23 @@ def detect(cfg,opt):
         if img.ndimension() == 3:
             img = img.unsqueeze(0)
 
-        # Inference
-        det_out, da_seg_out,ll_seg_out = model(img)
-        inf_out, _ = det_out
+
+        # img = resize_input_to_match_model(img, (640, 640))
+        # Inference with ONNX
+        img_np = img.cpu().numpy().astype(np.float32)  # 强制转换为float32
+        ort_inputs = {input_name: img_np}
+        onnx_outputs = ort_session.run(output_names, ort_inputs)
+
+        print("ONNX 输出调试:")
+        for i, output in enumerate(onnx_outputs):
+            print(f"输出 {i}: shape={output.shape}, dtype={output.dtype}, range=[{output.min():.3f}, {output.max():.3f}]")
+        
+        # 解析ONNX输出并转换为torch tensor
+        det_out = torch.from_numpy(onnx_outputs[0]).to(device)
+        da_seg_out = torch.from_numpy(onnx_outputs[4]).to(device) 
+        ll_seg_out = torch.from_numpy(onnx_outputs[5]).to(device)
+
+        inf_out = det_out  # ONNX输出可能格式不同，需要根据实际情况调整
 
         # Apply NMS
         det_pred = non_max_suppression(inf_out, conf_thres=opt.conf_thres, iou_thres=opt.iou_thres, classes=None, agnostic=False)
@@ -145,22 +167,22 @@ def detect(cfg,opt):
         ll_seg_mask = ll_seg_mask.cpu().numpy() 
 
         if dataset.mode == 'images':
-            # convert to BGR
-            img_det = img_det[..., ::-1]
-            
-            # 修改为与 video 模式一致的调用方式
-            img_det = show_seg_result_xy(opt, img_det, (da_seg_mask, ll_seg_mask), _, _, is_demo=True, 
-                                         draw_path=True, 
-                                         draw_markers=True,
-                                         draw_trapezoid=False)
+                    # convert to BGR
+                    img_det = img_det[..., ::-1]
+                    
+                    # 修改为与video模式一致的调用方式
+                    img_det = show_seg_result_xy(opt, img_det, (da_seg_mask, ll_seg_mask), _, _, is_demo=True,
+                                                draw_path=True, 
+                                                draw_markers=True,
+                                                draw_trapezoid=False)
 
-            if len(det):
-                det[:,:4] = scale_coords(img.shape[2:],det[:,:4],img_det.shape).round()
-                for *xyxy,conf,cls in reversed(det):
-                    label_det_pred = f'{conf:.2f}'
-                    plot_one_box(xyxy, img_det , label=label_det_pred, color=(0,255,255), line_thickness=2)       
-            
-            cv2.imwrite(save_path,img_det)
+                    if len(det):
+                        det[:,:4] = scale_coords(img.shape[2:],det[:,:4],img_det.shape).round()
+                        for *xyxy,conf,cls in reversed(det):
+                            label_det_pred = f'{conf:.2f}'
+                            plot_one_box(xyxy, img_det , label=label_det_pred, color=(0,255,255), line_thickness=2)       
+                    
+                    cv2.imwrite(save_path,img_det)
 
         elif dataset.mode == 'video':
             img_det = img_det[..., ::-1]
