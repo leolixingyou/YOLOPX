@@ -1,2 +1,7 @@
 bdd100k/images/
 bdd100k/labels/
+*.sh
+*.json
+*__pycache__
+*.mp4
+inference/
