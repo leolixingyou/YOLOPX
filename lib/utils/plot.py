@@ -229,6 +229,96 @@ def show_seg_result_xy(opt, img, result, index, epoch, save_dir=None,
                 cv2.imwrite(save_dir+"/batch_{}_{}_ll_seg_gt.png".format(epoch,index), img)  
     return img
 
+
+def show_seg_result_xy_ros(opt, img, result, index, epoch, save_dir=None, 
+                               is_ll=False, palette=None, is_demo=False, is_gt=False,
+                               draw_trapezoid=True, draw_path=True, draw_markers=True):
+    if palette is None:
+        palette = np.random.randint(
+                0, 255, size=(3, 3))
+    palette[0] = [0, 0, 0]
+    palette[1] = [0, 255, 0]
+    palette[2] = [255, 0, 0]
+    palette = np.array(palette)
+    assert palette.shape[0] == 3 # len(classes)
+    assert palette.shape[1] == 3
+    assert len(palette.shape) == 2
+    
+    color_area = np.zeros((result[0].shape[0], result[0].shape[1], 3), dtype=np.uint8)
+    color_area[result[0] == 1] = [0, 255, 0]
+
+    try:
+        trapezoid, path_info = extract_polygon(result[1], target_class=1, refine=True)
+        
+        filtered_top, filtered_bottom = draw_enhanced_drivable_path_controlled(
+            color_area, trapezoid, global_tracker,
+            draw_trapezoid=draw_trapezoid,
+            draw_path=draw_path, 
+            draw_center_markers=draw_markers
+        )
+
+
+        color_area[result[1] ==1] = [0, 0, 255]
+
+    
+
+    except ValueError as e:
+        print(f"未找到有效像素，使用预测值维持跟踪: {e}")
+        
+        # 维持跟踪：只进行预测，不更新观测
+        if global_tracker.initialized:
+            # 使用跟踪器的预测值
+            predicted_top = global_tracker.top_center_filter.predict()
+            predicted_bottom = global_tracker.bottom_center_filter.predict()
+            
+            # 构建默认梯形来维持绘制
+            image_height, image_width = result[1].shape
+            default_trapezoid = np.array([
+                [predicted_bottom[0] - 100, image_height - 1],  # 左下
+                [predicted_bottom[0] + 100, image_height - 1],  # 右下
+                [predicted_top[0] + 50, predicted_top[1]],      # 右上
+                [predicted_top[0] - 50, predicted_top[1]]       # 左上
+            ], dtype=np.float32)
+            
+            # 使用预测值进行绘制（但不更新跟踪器）
+            if draw_path or draw_markers:
+                draw_vehicle_drivable_path_with_prediction(
+                    color_area, predicted_top, predicted_bottom,
+                    draw_path=draw_path, draw_markers=draw_markers
+                )
+            
+            if draw_trapezoid:
+                points = np.array(default_trapezoid, dtype=np.int32)
+                cv2.polylines(color_area, [points], isClosed=True, color=(0, 255, 255), thickness=2)
+        
+        # 显示原始分割结果
+        color_area[result[1] == 1] = [0, 0, 255]
+        
+    except Exception as e:
+        print(f"路径绘制失败: {e}")
+        color_area[result[1] == 1] = [0, 0, 255]
+
+    color_seg = color_area
+
+    color_mask = np.mean(color_seg, 2)
+    img[color_mask != 0] = img[color_mask != 0] * 0.5 + color_seg[color_mask != 0] * 0.5
+    img = img.astype(np.uint8)
+    # img = cv2.resize(img, (1280,720), interpolation=cv2.INTER_LINEAR)
+
+    if not is_demo:
+        if not is_gt:
+            if not is_ll:
+                cv2.imwrite(save_dir+"/batch_{}_{}_da_segresult.png".format(epoch,index), img)
+            else:
+                cv2.imwrite(save_dir+"/batch_{}_{}_ll_segresult.png".format(epoch,index), img)
+        else:
+            if not is_ll:
+                cv2.imwrite(save_dir+"/batch_{}_{}_da_seg_gt.png".format(epoch,index), img)
+            else:
+                cv2.imwrite(save_dir+"/batch_{}_{}_ll_seg_gt.png".format(epoch,index), img)  
+    return img
+
+
 def plot_one_box(x, img, color=None, label=None, line_thickness=None):
     # Plots one bounding box on image img
     tl = line_thickness or round(0.0001 * (img.shape[0] + img.shape[1]) / 2) + 1  # line/font thickness
