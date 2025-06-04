@@ -13,6 +13,8 @@ from cv_bridge import CvBridge
 from sensor_msgs.msg import CompressedImage
 import torchvision.transforms as transforms
 from pathlib import Path
+from ultralytics import YOLO
+# from yolo.trackers.byte_tracker import BYTETracker
 
 # Add your project paths here if needed
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -22,13 +24,15 @@ sys.path.append(BASE_DIR)
 from lib.core.general import non_max_suppression, scale_coords
 from lib.utils import plot_one_box, show_seg_result_xy_ros
 
+TARGET_CLASSES = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, ]
 class YOLOPInference:
-    def __init__(self, weights_path, conf_thres=0.3, iou_thres=0.45, img_size=640):
+    def __init__(self, weights_path, yolo_weights_path, conf_thres=0.3, iou_thres=0.45, img_size=640):
         """
         Initialize YOLOP inference node
         
         Args:
             weights_path (str): Path to ONNX model weights
+            yolo_weights_path (str): Path to YOLO model weights
             conf_thres (float): Confidence threshold for detection
             iou_thres (float): IoU threshold for NMS
             img_size (int): Input image size for model
@@ -48,7 +52,16 @@ class YOLOPInference:
         self.ort_session = ort.InferenceSession(weights_path)
         self.input_name = self.ort_session.get_inputs()[0].name
         self.output_names = [output.name for output in self.ort_session.get_outputs()]
-        
+
+        # Load detection model
+        self.model_path = yolo_weights_path
+        self.model = YOLO(self.model_path, self.conf_thres)
+        # self.tracker = BYTETracker()
+        # self.model = torch.hub.load('ultralytics/yolov5', 'custom', path=MODEL_PATH)
+        self.model.tracker = "bytetrack.yaml"
+        self.model.persist = True
+
+
         rospy.loginfo(f"ONNX input: {self.input_name}")
         rospy.loginfo(f"ONNX outputs: {self.output_names}")
         
@@ -83,6 +96,7 @@ class YOLOPInference:
         
         rospy.loginfo("YOLOP inference node started, waiting for images...")
     
+        
     def preprocess_image(self, cv_image):
         """
         Preprocess image for ONNX inference
@@ -145,14 +159,45 @@ class YOLOPInference:
         
         # Run inference
         onnx_outputs = self.ort_session.run(self.output_names, ort_inputs)
+        # det_yolo_result = self.detect_objects(img_np)
+        # print(det_yolo_result)
         
         # Convert outputs back to torch tensors
         det_out = torch.from_numpy(onnx_outputs[0])
         da_seg_out = torch.from_numpy(onnx_outputs[4]) if len(onnx_outputs) > 4 else None
         ll_seg_out = torch.from_numpy(onnx_outputs[5]) if len(onnx_outputs) > 5 else None
+        ll_seg_out = torch.from_numpy(onnx_outputs[5]) if len(onnx_outputs) > 5 else None
         
         return det_out, da_seg_out, ll_seg_out
     
+    def detect_objects(self, image):
+        results = self.model.track(image)
+        # results = self.model.predict(image)
+        detections = []
+
+        if results and len(results) > 0:
+            result = results[0]
+            boxes = result.boxes
+
+            for box in boxes:
+                cls = int(box.cls.item())
+                if cls not in TARGET_CLASSES:
+                    continue
+
+                x1, y1, x2, y2 = map(int, box.xyxy[0])
+                track_id = int(box.id.item()) if box.id is not None else -1
+                label = f"{self.model.names[cls]} ID:{track_id}"
+
+                cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 255), 2)
+                cv2.putText(image, label, (x1, y1 - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+
+                detections.append([x1, y1, x2, y2, label, track_id])
+        # tracks = self.tracker.update(detections, image.shape)
+        # print(tracks)
+
+        return detections
+
     def postprocess_detections(self, det_out, original_img, shapes_info):
         """
         Postprocess detection results
@@ -310,6 +355,8 @@ class YOLOPInference:
             # Preprocess image
             img_tensor, original_img, shapes_info = self.preprocess_image(cv_image)
             
+            det_yolo_result = self.detect_objects(cv_image)
+            print(det_yolo_result)
             # Run inference
             det_out, da_seg_out, ll_seg_out = self.run_inference(img_tensor)
             
@@ -351,6 +398,7 @@ class YOLOPInference:
 def main():
     # Configuration parameters
     weights_path = "/workspace/onnx_converter/yolopx.onnx"
+    yolo_weights_path = "/workspace/onnx_converter/yolov10n.pt"
     conf_thres = 0.3
     iou_thres = 0.45
     img_size = 640
@@ -364,6 +412,7 @@ def main():
     try:
         inference_node = YOLOPInference(
             weights_path=weights_path,
+            yolo_weights_path=yolo_weights_path,
             conf_thres=conf_thres,
             iou_thres=iou_thres,
             img_size=img_size

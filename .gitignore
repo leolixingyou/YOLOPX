@@ -8,3 +8,4 @@ inference/
 # onnx/
 *.onnx
 *.pth
+*.pt
