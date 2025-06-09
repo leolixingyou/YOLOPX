@@ -5,7 +5,8 @@ from yacs.config import CfgNode as CN
 _C = CN()
 
 _C.LOG_DIR =  '/workspace/runs/'
-_C.GPUS = (0,)     # 显卡数 = len(GPUS)
+# _C.GPUS = (0,)     # 显卡数 = len(GPUS)
+_C.GPUS = ("cpu")     # 显卡数 = len(GPUS)
 _C.WORKERS = 0      # 指数据装载时cpu所使用的线程数，默认为8（注意，一般默使用8的话，会报错~~。原因是爆系统内存）
 _C.PIN_MEMORY = True
 _C.PRINT_FREQ = 2150
@@ -55,10 +56,10 @@ _C.LOSS.LL_IOU_GAIN = 0.2 # lane line iou loss gain
 
 # DATASET related params
 _C.DATASET = CN(new_allowed=True)
-_C.DATASET.DATAROOT = '/media/jiao/39b48156-5afd-4cd7-bddc-f6ecf4631a79/zhanjiao/dataset/bdd/bdd100k/images/100k'       # the path of images folder
-_C.DATASET.LABELROOT = '/media/jiao/39b48156-5afd-4cd7-bddc-f6ecf4631a79/zhanjiao/dataset/bdd/bdd100k/labels/100k'      # the path of det_annotations folder
-_C.DATASET.MASKROOT = '/media/jiao/39b48156-5afd-4cd7-bddc-f6ecf4631a79/zhanjiao/dataset/bdd/bdd_seg_gt'                # the path of da_seg_annotations folder
-_C.DATASET.LANEROOT = '/media/jiao/39b48156-5afd-4cd7-bddc-f6ecf4631a79/zhanjiao/dataset/bdd/bdd_lane_gt'               # the path of ll_seg_annotations folder
+_C.DATASET.DATAROOT = '/workspace/bdd100k_79863/images/'       # the path of images folder
+_C.DATASET.LABELROOT = '/workspace/bdd100k_79863/labels/det_20/'      # the path of det_annotations folder
+_C.DATASET.MASKROOT = '/workspace/bdd100k_79863/labels/drivable/masks/'                # the path of da_seg_annotations folder
+_C.DATASET.LANEROOT = '/workspace/bdd100k_79863/labels/lane/masks/'               # the path of ll_seg_annotations folder
 _C.DATASET.DATASET = 'BddDataset'
 _C.DATASET.TRAIN_SET = 'train'
 _C.DATASET.TEST_SET = 'val'
@@ -97,7 +98,7 @@ _C.TRAIN.BEGIN_EPOCH = 0
 _C.TRAIN.END_EPOCH = 200
 
 _C.TRAIN.VAL_FREQ = 20
-_C.TRAIN.BATCH_SIZE_PER_GPU = 32
+_C.TRAIN.BATCH_SIZE_PER_GPU = 1 #default 32
 _C.TRAIN.SHUFFLE = True
 
 _C.TRAIN.IOU_THRESHOLD = 0.2
@@ -122,7 +123,7 @@ _C.TRAIN.PLOT = False                #
 
 # testing
 _C.TEST = CN(new_allowed=True)
-_C.TEST.BATCH_SIZE_PER_GPU = 32
+_C.TEST.BATCH_SIZE_PER_GPU = 1 # default 32
 _C.TEST.MODEL_FILE = ''
 _C.TEST.SAVE_JSON = False
 _C.TEST.SAVE_TXT = False
@@ -131,7 +132,7 @@ _C.TEST.NMS_CONF_THRESHOLD  = 0.001
 _C.TEST.NMS_IOU_THRESHOLD  = 0.6
 
 
-def update_config(cfg, args):
+def update_config_xy(cfg, args):
     cfg.defrost()
     # cfg.merge_from_file(args.cfg)
 

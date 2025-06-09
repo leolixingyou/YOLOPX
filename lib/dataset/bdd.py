@@ -29,9 +29,12 @@ class BddDataset(AutoDriveDataset):
         print('building database...')
         gt_db = []
         height, width = self.shapes
+
+
+
         # for mask in tqdm(list(self.mask_list)[0:200] if self.is_train==True else list(self.mask_list)[0:30]):
-        # for mask in tqdm(list(self.mask_list)[0:20000] if self.is_train==True else list(self.mask_list)[0:3000]):
-        for mask in tqdm(list(self.mask_list)):
+        for mask in tqdm(list(self.mask_list)[0:20000] if self.is_train==True else list(self.mask_list)[0:3000]):
+        # for mask in tqdm(list(self.mask_list)):
             mask_path = str(mask)
             label_path = mask_path.replace(str(self.mask_root), str(self.label_root)).replace(".png", ".json")
             image_path = mask_path.replace(str(self.mask_root), str(self.img_root)).replace(".png", ".jpg")
@@ -69,6 +72,9 @@ class BddDataset(AutoDriveDataset):
             gt_db += rec
         print('database build finish')
         return gt_db
+
+    def match_dataset(self, a):
+        pass
 
     def filter_data(self, data):
         remain = []

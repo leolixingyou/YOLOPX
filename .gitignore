@@ -1,5 +1,6 @@
 bdd100k/images/
 bdd100k/labels/
+bdd100k_79863/
 *.sh
 *.json
 *__pycache__
@@ -8,3 +9,5 @@ inference/
 # onnx/
 *.onnx
 *.pth
+*.pt
+runs/
