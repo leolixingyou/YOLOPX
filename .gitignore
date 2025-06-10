@@ -1,5 +1,7 @@
 bdd100k/images/
 bdd100k/labels/
+bdd100k_79863/
+runs/
 *.sh
 *.json
 *__pycache__
