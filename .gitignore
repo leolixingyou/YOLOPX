@@ -11,3 +11,4 @@ inference/
 *.onnx
 *.pth
 *.pt
+*.bag
