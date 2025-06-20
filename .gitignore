@@ -9,5 +9,6 @@ inference/
 # onnx/
 *.onnx
 *.pth
+*.bag
 *.pt
 runs/

@@ -143,7 +143,12 @@ def train_xy(cfg, train_loader, model, criterion, optimizer, scaler, epoch, num_
     start = time.time()
 
     print("Start training")
-    for i, (input, target, paths, shapes) in tqdm(enumerate(train_loader)):
+
+    train_pbar = tqdm(train_loader, desc=f'Epoch {epoch}', 
+                  bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]')
+
+    for i, (input, target, paths, shapes) in enumerate(train_pbar):
+    # for i, (input, target, paths, shapes) in tqdm(enumerate(train_loader)):
         intermediate = time.time()
         #print('tims:{}'.format(intermediate-start))
         num_iter = i + num_batch * (epoch - 1)
