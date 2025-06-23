@@ -56,10 +56,19 @@ _C.LOSS.LL_IOU_GAIN = 0.2 # lane line iou loss gain
 
 # DATASET related params
 _C.DATASET = CN(new_allowed=True)
-_C.DATASET.DATAROOT = '/workspace/bdd100k_79863/images/'       # the path of images folder
-_C.DATASET.LABELROOT = '/workspace/bdd100k_79863/labels/det_20/'      # the path of det_annotations folder
-_C.DATASET.MASKROOT = '/workspace/bdd100k_79863/labels/drivable/masks/'                # the path of da_seg_annotations folder
-_C.DATASET.LANEROOT = '/workspace/bdd100k_79863/labels/lane/masks/'               # the path of ll_seg_annotations folder
+# 79863
+# _C.DATASET.DATAROOT = '/workspace/bdd100k_79863/images/'       # the path of images folder
+# _C.DATASET.LABELROOT = '/workspace/bdd100k_79863/labels/det_20/'      # the path of det_annotations folder
+# _C.DATASET.MASKROOT = '/workspace/bdd100k_79863/labels/drivable/masks/'                # the path of da_seg_annotations folder
+# _C.DATASET.LANEROOT = '/workspace/bdd100k_79863/labels/lane/masks/'               # the path of ll_seg_annotations folder
+
+# yolop
+_C.DATASET.DATAROOT = '/workspace/bdd100k/images/'       # the path of images folder
+_C.DATASET.LABELROOT = '/workspace/yolop_train/bdd_det/'      # the path of det_annotations folder
+_C.DATASET.MASKROOT = '/workspace/yolop_train/bdd_seg_gt/'                # the path of da_seg_annotations folder
+_C.DATASET.LANEROOT = '/workspace/yolop_train/bdd_lane_gt/'    
+
+
 _C.DATASET.DATASET = 'BddDataset'
 _C.DATASET.TRAIN_SET = 'train'
 _C.DATASET.TEST_SET = 'val'

@@ -12,3 +12,4 @@ inference/
 *.bag
 *.pt
 runs/
+yolop_train/
