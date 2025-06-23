@@ -33,7 +33,8 @@ class BddDataset(AutoDriveDataset):
 
 
         # for mask in tqdm(list(self.mask_list)[0:200] if self.is_train==True else list(self.mask_list)[0:30]):
-        for mask in tqdm(list(self.mask_list)[0:20000] if self.is_train==True else list(self.mask_list)[0:3000]):
+        # for mask in tqdm(list(self.mask_list)[0:20000] if self.is_train==True else list(self.mask_list)[0:3000]):
+        for mask in tqdm(list(self.mask_list)[0:10000] if self.is_train==True else list(self.mask_list)[0:3000]): # xy
         # for mask in tqdm(list(self.mask_list)):
             mask_path = str(mask)
             label_path = mask_path.replace(str(self.mask_root), str(self.label_root)).replace(".png", ".json")

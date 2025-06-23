@@ -9,7 +9,7 @@ _C.GPUS = (0,)     # 显卡数 = len(GPUS)
 # _C.GPUS = ("cpu")     # 显卡数 = len(GPUS)
 _C.WORKERS = 0      # 指数据装载时cpu所使用的线程数，默认为8（注意，一般默使用8的话，会报错~~。原因是爆系统内存）
 _C.PIN_MEMORY = True
-_C.PRINT_FREQ = 2150
+_C.PRINT_FREQ = 1
 _C.AUTO_RESUME =False       # Resume from the last training interrupt
 _C.NEED_AUTOANCHOR = False      # Re-select the prior anchor(k-means)    When training from scratch (epoch=0), set it to be ture!
 _C.DEBUG = False
@@ -97,7 +97,7 @@ _C.TRAIN.GAMMA2 = 0.0
 _C.TRAIN.BEGIN_EPOCH = 0
 _C.TRAIN.END_EPOCH = 200
 
-_C.TRAIN.VAL_FREQ = 20
+_C.TRAIN.VAL_FREQ = 5 # for val and save weight
 _C.TRAIN.BATCH_SIZE_PER_GPU = 16 #default 32
 _C.TRAIN.SHUFFLE = True
 
@@ -127,7 +127,7 @@ _C.TEST.BATCH_SIZE_PER_GPU = 1 # default 32
 _C.TEST.MODEL_FILE = ''
 _C.TEST.SAVE_JSON = False
 _C.TEST.SAVE_TXT = False
-_C.TEST.PLOTS = False
+_C.TEST.PLOTS = True # validation ploting figures
 _C.TEST.NMS_CONF_THRESHOLD  = 0.001
 _C.TEST.NMS_IOU_THRESHOLD  = 0.6
 
