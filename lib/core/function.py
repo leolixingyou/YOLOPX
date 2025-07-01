@@ -285,7 +285,7 @@ def validate(epoch,config, val_loader, val_dataset, model, criterion, output_dir
     model.eval()
     jdict, stats, ap, ap_class, wandb_images = [], [], [], [], []
 
-    for batch_i, (img, target, paths, shapes) in tqdm(enumerate(val_loader), total=len(val_loader)):
+    for batch_i, (img, target, paths, shapes) in tqdm(enumerate(val_loader), total=len(val_loader), desc='Validation'):
         if not config.DEBUG:
             img = img.to(device, non_blocking=True)
             assign_target = []
@@ -553,3 +553,5 @@ class AverageMeter(object):
         self.sum += val * n
         self.count += n
         self.avg = self.sum / self.count if self.count != 0 else 0
+
+

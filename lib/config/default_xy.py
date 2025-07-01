@@ -4,12 +4,13 @@ from yacs.config import CfgNode as CN
 
 _C = CN()
 
-_C.LOG_DIR =  '/workspace/runs/'
+_C.LOG_DIR =  '/workspace/YOLOPX/runs/'
 _C.GPUS = (0,)     # 显卡数 = len(GPUS)
+# _C.GPUS = (0, 1, 2, 3)     # 显卡数 = len(GPUS)
 # _C.GPUS = ("cpu")     # 显卡数 = len(GPUS)
 _C.WORKERS = 0      # 指数据装载时cpu所使用的线程数，默认为8（注意，一般默使用8的话，会报错~~。原因是爆系统内存）
 _C.PIN_MEMORY = True
-_C.PRINT_FREQ = 1
+_C.PRINT_FREQ = 5
 _C.AUTO_RESUME =False       # Resume from the last training interrupt
 _C.NEED_AUTOANCHOR = False      # Re-select the prior anchor(k-means)    When training from scratch (epoch=0), set it to be ture!
 _C.DEBUG = False
@@ -63,10 +64,10 @@ _C.DATASET = CN(new_allowed=True)
 # _C.DATASET.LANEROOT = '/workspace/bdd100k_79863/labels/lane/masks/'               # the path of ll_seg_annotations folder
 
 # yolop
-_C.DATASET.DATAROOT = '/workspace/bdd100k/images/'       # the path of images folder
-_C.DATASET.LABELROOT = '/workspace/yolop_train/bdd_det/'      # the path of det_annotations folder
-_C.DATASET.MASKROOT = '/workspace/yolop_train/bdd_seg_gt/'                # the path of da_seg_annotations folder
-_C.DATASET.LANEROOT = '/workspace/yolop_train/bdd_lane_gt/'    
+_C.DATASET.DATAROOT = '/workspace/YOLOPX/bdd100k/images'       # the path of images folder
+_C.DATASET.LABELROOT = '/workspace/bdd100k/yolop_train/bdd_det/'      # the path of det_annotations folder
+_C.DATASET.MASKROOT = '/workspace/bdd100k/yolop_train/bdd_seg_gt/'                # the path of da_seg_annotations folder
+_C.DATASET.LANEROOT = '/workspace/bdd100k/yolop_train/bdd_lane_gt/'    
 
 
 _C.DATASET.DATASET = 'BddDataset'
@@ -104,10 +105,10 @@ _C.TRAIN.GAMMA1 = 0.99
 _C.TRAIN.GAMMA2 = 0.0
 
 _C.TRAIN.BEGIN_EPOCH = 0
-_C.TRAIN.END_EPOCH = 200
+_C.TRAIN.END_EPOCH = 50 # default 200
 
 _C.TRAIN.VAL_FREQ = 5 # for val and save weight
-_C.TRAIN.BATCH_SIZE_PER_GPU = 16 #default 32
+_C.TRAIN.BATCH_SIZE_PER_GPU = 8 #default 32
 _C.TRAIN.SHUFFLE = True
 
 _C.TRAIN.IOU_THRESHOLD = 0.2
@@ -132,7 +133,7 @@ _C.TRAIN.PLOT = False                #
 
 # testing
 _C.TEST = CN(new_allowed=True)
-_C.TEST.BATCH_SIZE_PER_GPU = 1 # default 32
+_C.TEST.BATCH_SIZE_PER_GPU = 8 # default 32
 _C.TEST.MODEL_FILE = ''
 _C.TEST.SAVE_JSON = False
 _C.TEST.SAVE_TXT = False
