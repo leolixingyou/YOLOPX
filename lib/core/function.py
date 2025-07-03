@@ -257,7 +257,13 @@ def train_xy(cfg, train_loader, model, criterion, optimizer, scaler, epoch, num_
                           epoch, i, len(train_loader), batch_time=batch_time,
                           speed=input.size(0)/batch_time.val,
                           data_time=data_time, loss=losses)
-                
+
+                # gradnorm_balancer信息
+                if gradnorm_balancer and gradnorm_balancer.initialized:
+                    weights = gradnorm_balancer.get_current_weights()
+                    weight_str = ' '.join([f'{task[:3]}:{weight:.3f}' for task, weight in weights.items()])
+                    msg += f'\tWeights[{weight_str}]'
+
                 logger.info(msg)
 
                 writer = writer_dict['writer']
@@ -265,6 +271,16 @@ def train_xy(cfg, train_loader, model, criterion, optimizer, scaler, epoch, num_
                 writer.add_scalar('train_loss', losses.val, global_steps)
                 # writer.add_scalar('train_acc', acc.val, global_steps)
                 writer_dict['train_global_steps'] = global_steps + 1
+
+                # gradnorm_balancer信息记录
+                if gradnorm_balancer and gradnorm_balancer.initialized:
+                    # 记录individual task losses
+                    for task, meter in task_loss_meters.items():
+                        writer.add_scalar(f'train_loss_{task}', meter.val, global_steps)
+                    
+                    # 记录task weights
+                    for task, meter in task_weight_meters.items():
+                        writer.add_scalar(f'task_weight_{task}', meter.val, global_steps)
 
 
 

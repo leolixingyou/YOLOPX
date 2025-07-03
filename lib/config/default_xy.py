@@ -23,6 +23,7 @@ _C.CUDNN.DETERMINISTIC = False
 _C.CUDNN.ENABLED = True
 
 
+
 # common params for NETWORK
 _C.MODEL = CN(new_allowed=True)
 _C.MODEL.NAME = '' 
@@ -32,8 +33,8 @@ _C.MODEL.HEADS_NAME = ['']
 # MODIFY
 _C.MODEL.PRETRAINED = '/workspace/YOLOPX/tools/epoch-195.pth' # default ""
 
-#
 
+#
 _C.MODEL.PRETRAINED_DET = ""
 _C.MODEL.IMAGE_SIZE = [640, 640]  # width * height, ex: 192 * 256
 _C.MODEL.EXTRA = CN(new_allowed=True)
@@ -76,7 +77,6 @@ _C.DATASET.TEST_SET = 'val'
 _C.DATASET.DATA_FORMAT = 'jpg'
 _C.DATASET.SELECT_DATA = False
 _C.DATASET.ORG_IMG_SIZE = [720, 1280]
-_C.DATASET.NUMBER_IMAGE = 1000
 
 # training data augmentation
 _C.DATASET.FLIP = True
@@ -105,8 +105,7 @@ _C.TRAIN.NESTEROV = True
 _C.TRAIN.GAMMA1 = 0.99
 _C.TRAIN.GAMMA2 = 0.0
 
-_C.TRAIN.BEGIN_EPOCH = 0
-_C.TRAIN.END_EPOCH = 50 # default 200
+
 
 _C.TRAIN.VAL_FREQ = 5 # for val and save weight
 _C.TRAIN.BATCH_SIZE_PER_GPU = 8 #default 32
@@ -142,6 +141,12 @@ _C.TEST.PLOTS = True # validation ploting figures
 _C.TEST.NMS_CONF_THRESHOLD  = 0.001
 _C.TEST.NMS_IOU_THRESHOLD  = 0.6
 
+
+# conflict with other params
+_C.USE_GRADNORM = True  # use grad norm to adjust learning rate
+_C.DATASET.NUMBER_IMAGE = 100
+_C.TRAIN.BEGIN_EPOCH = 0
+_C.TRAIN.END_EPOCH = 5 # default 200
 
 def update_config_xy(cfg, args):
     cfg.defrost()

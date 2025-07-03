@@ -100,6 +100,66 @@ class MultiHeadLoss(nn.Module):
         return loss, (det_all_loss.item(), da_seg_loss.item(), ll_seg_loss.item(), ll_tversky_loss.item(), loss.item())
 
 
+def get_loss_with_gradnorm_support(cfg, device, model):
+    """
+    Alternative implementation that wraps the original MultiHeadLoss
+    Use this if you want to keep the original MultiHeadLoss structure
+    """
+    
+    # Create original loss
+    original_loss = get_loss(cfg, device, model)
+    
+    # Create individual components for direct access
+    Det_loss = YOLOX_Loss(device, 1)
+    Da_Seg_Loss = nn.BCEWithLogitsLoss(pos_weight=torch.Tensor([cfg.LOSS.SEG_POS_WEIGHT])).to(device)
+    Ll_Seg_Loss = nn.BCEWithLogitsLoss(pos_weight=torch.Tensor([cfg.LOSS.SEG_POS_WEIGHT])).to(device)
+    Tversky_Loss = TverskyLoss(alpha=0.7, beta=0.3, gamma=4.0 / 3).to(device)
+    
+    gamma = cfg.LOSS.FL_GAMMA
+    if gamma > 0.0:
+        Ll_Seg_Loss = FocalLossSeg(Ll_Seg_Loss, gamma)
+    
+    def enhanced_criterion_v2(outputs, target, shapes, model, input, return_individual=False):
+        """
+        Wrapper that uses original MultiHeadLoss but also computes individual losses
+        """
+        
+        if not return_individual:
+            # Use original behavior
+            return original_loss(outputs, target, shapes, model, input)
+        
+        # Compute using original loss for consistency
+        total_loss, head_losses = original_loss(outputs, target, shapes, model, input)
+        
+        # Also compute individual task losses for GradNorm
+        detection_outputs = outputs[0]
+        da_seg_output = outputs[1]
+        ll_seg_output = outputs[2]
+        
+        det_targets = target[0]
+        da_seg_targets = target[1]
+        ll_seg_targets = target[2]
+        
+        # Individual unweighted losses
+        individual_losses = {
+            'detection': Det_loss(detection_outputs, det_targets),
+            'drivable_segment': Da_Seg_Loss(da_seg_output, da_seg_targets.float()),
+            'lane_segment': (Ll_Seg_Loss(ll_seg_output, ll_seg_targets.float()) + 
+                           Tversky_Loss(ll_seg_output, ll_seg_targets.float()))
+        }
+        
+        return total_loss, head_losses, individual_losses
+    
+    return enhanced_criterion_v2
+
+def get_loss_management(cfg, device, model):
+    if cfg.USE_GRADNORM:
+        return get_loss_with_gradnorm_support(cfg, device, model)
+    else:
+        return get_loss(cfg, device, model)
+
+
+
 def get_loss(cfg, device, model):
     """
     get MultiHeadLoss

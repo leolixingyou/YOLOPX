@@ -17,7 +17,7 @@ from tensorboardX import SummaryWriter
 import lib.dataset as dataset
 from lib.config import cfg_xy as cfg
 from lib.config import update_config_xy as update_config
-from lib.core.loss import get_loss
+from lib.core.loss import get_loss_management
 from lib.core.function import train_xy
 from lib.core.function import validate
 from lib.models import get_net_from_yaml
@@ -180,7 +180,7 @@ def main():
     print("load model to device")
 
     model = get_net_from_yaml(args.model_conf).to(device)
-    criterion = get_loss(cfg, device, model)
+    criterion = get_loss_management(cfg, device, model)
     optimizer = get_optimizer(cfg, model)
 
     lf = lambda x: ((1 + math.cos(x * math.pi / cfg.TRAIN.END_EPOCH)) / 2) * \
@@ -202,17 +202,11 @@ def main():
         logger.info("=> loaded checkpoint '{}' (epoch {})".format(
             cfg.MODEL.PRETRAINED, checkpoint['epoch']))
         #cfg.NEED_AUTOANCHOR = False     #disable autoanchor
-    
 
     if  torch.cuda.device_count() > 1:
         model = torch.nn.DataParallel(model, device_ids=cfg.GPUS)
         # model = torch.nn.DataParallel(model, device_ids=cfg.GPUS).cuda()
-
-    #### xingyou 
-    ####  2025 refactoring and code dieting........... config file and parameter management and training process update.
-    #### xingyou 
-
-    
+   
     # assign model params
     model.gr = 1.0
     model.nc = 1 
@@ -269,9 +263,8 @@ def main():
     
 
 
-    use_gradnorm = getattr(cfg, 'USE_GRADNORM', True)
     gradnorm_balancer = None
-    if use_gradnorm:
+    if cfg.USE_GRADNORM:
         gradnorm_balancer = integrate_gradnorm_with_training(
             cfg, model, device, tb_log_dir
         )
