@@ -215,8 +215,9 @@ def main():
     
     print('=> Start training...')
     
+    modi_epoch = cfg.TRAIN.END_EPOCH +  (cfg.TRAIN.END_EPOCH - cfg.TRAIN.BEGIN_EPOCH)
     # 主训练循环
-    for epoch in range(begin_epoch + 1, cfg.TRAIN.END_EPOCH + 1):
+    for epoch in range(begin_epoch + 1, modi_epoch + 1):
         if rank != -1:
             train_loader.sampler.set_epoch(epoch)
         

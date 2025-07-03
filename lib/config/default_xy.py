@@ -25,12 +25,12 @@ _C.CUDNN.ENABLED = True
 
 # common params for NETWORK
 _C.MODEL = CN(new_allowed=True)
-_C.MODEL.NAME = '/workspace/YOLOPX/tools/epoch-195.pth' # default ""
+_C.MODEL.NAME = '' 
 _C.MODEL.STRU_WITHSHARE = False     #add share_block to segbranch
 _C.MODEL.HEADS_NAME = ['']
 
 # MODIFY
-_C.MODEL.PRETRAINED = ''
+_C.MODEL.PRETRAINED = '/workspace/YOLOPX/tools/epoch-195.pth' # default ""
 
 #
 
@@ -70,12 +70,13 @@ _C.DATASET.MASKROOT = '/workspace/bdd100k/yolop_train/bdd_seg_gt/'              
 _C.DATASET.LANEROOT = '/workspace/bdd100k/yolop_train/bdd_lane_gt/'    
 
 
-_C.DATASET.DATASET = 'BddDataset'
+_C.DATASET.DATASET = 'BddDataset_refactor'
 _C.DATASET.TRAIN_SET = 'train'
 _C.DATASET.TEST_SET = 'val'
 _C.DATASET.DATA_FORMAT = 'jpg'
 _C.DATASET.SELECT_DATA = False
 _C.DATASET.ORG_IMG_SIZE = [720, 1280]
+_C.DATASET.NUMBER_IMAGE = 1000
 
 # training data augmentation
 _C.DATASET.FLIP = True

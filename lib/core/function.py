@@ -111,8 +111,9 @@ def train(cfg, train_loader, model, criterion, optimizer, scaler, epoch, num_bat
                 # writer.add_scalar('train_acc', acc.val, global_steps)
                 writer_dict['train_global_steps'] = global_steps + 1
 
+
 def train_xy(cfg, train_loader, model, criterion, optimizer, scaler, epoch, num_batch, num_warmup,
-          writer_dict, logger, device, rank = -1):
+          writer_dict, logger, device, rank = -1, gradnorm_balancer=None):
     """
     train for one epoch
 
@@ -137,6 +138,10 @@ def train_xy(cfg, train_loader, model, criterion, optimizer, scaler, epoch, num_
     batch_time = AverageMeter()
     data_time = AverageMeter()
     losses = AverageMeter()
+
+    if gradnorm_balancer:
+        task_loss_meters = {task: AverageMeter() for task in gradnorm_balancer.task_names}
+        task_weight_meters = {task: AverageMeter() for task in gradnorm_balancer.task_names}
 
     # switch to train mode
     model.train()
@@ -174,7 +179,57 @@ def train_xy(cfg, train_loader, model, criterion, optimizer, scaler, epoch, num_
             target = assign_target
         with amp.autocast(enabled=device.type != 'cpu'):
             outputs = model(input)
-            total_loss, head_losses = criterion(outputs, target, shapes,model,input)            
+
+            # GradNorm 集成
+            if gradnorm_balancer and gradnorm_balancer.initialized:
+                # 需要修改criterion以返回individual losses
+                total_loss, head_losses, individual_losses = criterion(outputs, target, shapes, model, input, return_individual=True)
+                
+                # 映射到任务字典
+                loss_dict = {
+                    'detection': individual_losses.get('detection', torch.tensor(0.0, device=device)),
+                    'lane_segment': individual_losses.get('lane_segment', torch.tensor(0.0, device=device)),
+                    'drivable_segment': individual_losses.get('drivable_segment', torch.tensor(0.0, device=device))
+                }
+                
+                # 更新GradNorm权重
+                current_losses = {k: v.item() for k, v in loss_dict.items()}
+                task_weights = gradnorm_balancer.update_weights(current_losses, epoch, num_iter)
+                
+                # 重新计算加权损失
+                weighted_total_loss = sum(task_weights.get(task, 1.0) * loss 
+                                        for task, loss in zip(['detection', 'lane_segment', 'drivable_segment'], 
+                                                            [loss_dict['detection'], loss_dict['lane_segment'], loss_dict['drivable_segment']]))
+                total_loss = weighted_total_loss
+                
+                # 更新task meters
+                for task in gradnorm_balancer.task_names:
+                    if task in current_losses:
+                        task_loss_meters[task].update(current_losses[task], input.size(0))
+                    if task in task_weights:
+                        task_weight_meters[task].update(task_weights[task], input.size(0))
+                        
+            elif gradnorm_balancer and not gradnorm_balancer.initialized and i == 0:
+                # 第一次初始化
+                total_loss, head_losses, individual_losses = criterion(outputs, target, shapes, model, input, return_individual=True)
+                
+                # 找到shared layer
+                shared_layer = None
+                if hasattr(model, 'backbone'):
+                    shared_layer = model.backbone
+                elif hasattr(model, 'module') and hasattr(model.module, 'backbone'):
+                    shared_layer = model.module.backbone
+                
+                # 初始化GradNorm
+                if shared_layer is not None:
+                    initial_losses = {
+                        'detection': individual_losses.get('detection', torch.tensor(0.0)).item(),
+                        'lane_segment': individual_losses.get('lane_segment', torch.tensor(0.0)).item(),
+                        'drivable_segment': individual_losses.get('drivable_segment', torch.tensor(0.0)).item()
+                    }
+                    gradnorm_balancer.initialize_loss_weights(initial_losses, shared_layer)
+            else:
+                total_loss, head_losses = criterion(outputs, target, shapes,model,input)            
 
         # compute gradient and do update step
         optimizer.zero_grad()
@@ -210,6 +265,9 @@ def train_xy(cfg, train_loader, model, criterion, optimizer, scaler, epoch, num_
                 writer.add_scalar('train_loss', losses.val, global_steps)
                 # writer.add_scalar('train_acc', acc.val, global_steps)
                 writer_dict['train_global_steps'] = global_steps + 1
+
+
+
 
 
 def validate(epoch,config, val_loader, val_dataset, model, criterion, output_dir,
