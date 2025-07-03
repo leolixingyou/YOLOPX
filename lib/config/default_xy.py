@@ -147,6 +147,7 @@ _C.USE_GRADNORM = True  # use grad norm to adjust learning rate
 _C.DATASET.NUMBER_IMAGE = 100
 _C.TRAIN.BEGIN_EPOCH = 0
 _C.TRAIN.END_EPOCH = 5 # default 200
+_C.MODEL.CONFIG = "/workspace/YOLOPX/lib/config/yolopx.yaml"
 
 def update_config_xy(cfg, args):
     cfg.defrost()
