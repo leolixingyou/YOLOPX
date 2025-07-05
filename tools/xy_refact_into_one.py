@@ -32,7 +32,7 @@ from lib.utils import is_parallel
 from lib.utils.utils import get_optimizer, save_checkpoint
 
 from lib.core.evaluate import ConfusionMatrix, SegmentationMetric
-from lib.core.general import non_max_suppression, check_img_size, scale_coords, xyxy2xywh, xywh2xyxy, box_iou, coco80_to_coco91_class, ap_per_class
+from lib.core.general import non_max_suppression, check_img_size, scale_coords, xywh2xyxy, box_iou, ap_per_class
 from lib.utils.utils import time_synchronized
 
 
@@ -65,7 +65,6 @@ def setup_logging(cfg):
     log_dir.mkdir(parents=True, exist_ok=True)
     
     # 配置本地日志
-    time_str = time.strftime('%Y-%m-%d-%H-%M')
     log_file = log_dir / f'train_{time_str}.log'
     
     logging.basicConfig(
@@ -88,7 +87,7 @@ def setup_logging(cfg):
                 config={
                     "dataset": cfg.DATASET.DATASET,
                     "model": cfg.MODEL.NAME,
-                    "epochs": cfg.TRAIN.END_EPOCH,
+                    "epochs": cfg.TRAIN.END_EPOCH, 
                     "batch_size": cfg.TRAIN.BATCH_SIZE_PER_GPU,
                     "learning_rate": cfg.TRAIN.LR0,
                     "optimizer": cfg.TRAIN.OPTIMIZER,
@@ -156,11 +155,9 @@ def validate(epoch, config, val_loader, val_dataset, model, criterion, output_di
     max_stride = 32
     _, imgsz = [check_img_size(x, s=max_stride) for x in config.MODEL.IMAGE_SIZE]
     
-    nc = 1
     iouv = torch.linspace(0.5, 0.95, 10).to(device)
     niou = iouv.numel()
     
-    seen = 0
     confusion_matrix = ConfusionMatrix(nc=model.nc)
     da_metric = SegmentationMetric(config.num_seg_class)
     ll_metric = SegmentationMetric(2)
@@ -249,7 +246,6 @@ def validate(epoch, config, val_loader, val_dataset, model, criterion, output_di
                 nl = int(nlabel[si])
                 labels = target[0][si, :nl, 0:5]
                 tcls = labels[:, 0].tolist() if nl else []
-                seen += 1
                 
                 if len(pred) == 0:
                     if nl:
@@ -265,7 +261,10 @@ def validate(epoch, config, val_loader, val_dataset, model, criterion, output_di
                     tcls_tensor = labels[:, 0]
                     tbox = xywh2xyxy(labels[:, 1:5])
                     scale_coords(img[si].shape[1:], tbox, shapes[si][0], shapes[si][1])
-                    
+                    confusion_matrix.process_batch(pred, torch.cat((labels[:, 0:1], tbox), 1))
+                    if wandb and wandb.run:
+                        wandb.log({"Images": wandb_images})
+                        wandb.log({"Validation": [wandb.Image(str(f), caption=f.name) for f in sorted(save_dir.glob('test*.jpg'))]})
                     for cls in torch.unique(tcls_tensor):
                         ti = (cls == tcls_tensor).nonzero(as_tuple=False).view(-1)
                         pi = (cls == pred[:, 5]).nonzero(as_tuple=False).view(-1)
@@ -475,10 +474,6 @@ def main():
             save_checkpoint(
                 epoch=epoch, name=cfg.MODEL.NAME, model=model, optimizer=optimizer,
                 output_dir=output_dir, filename=f'epoch-{epoch}.pth'
-            )
-            save_checkpoint(
-                epoch=epoch, name=cfg.MODEL.NAME, model=model, optimizer=optimizer,
-                output_dir=output_dir, filename='checkpoint.pth'
             )
     
     # 保存最终模型
