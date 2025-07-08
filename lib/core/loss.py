@@ -97,7 +97,8 @@ class MultiHeadLoss(nn.Module):
         
         loss = det_all_loss + da_seg_loss + ll_seg_loss + ll_tversky_loss
 
-        return loss, (det_all_loss.item(), da_seg_loss.item(), ll_seg_loss.item(), ll_tversky_loss.item(), loss.item())
+        return loss, (det_all_loss, da_seg_loss, ll_seg_loss, ll_tversky_loss, loss)
+        # return loss, (det_all_loss.item(), da_seg_loss.item(), ll_seg_loss.item(), ll_tversky_loss.item(), loss.item()) # original return format
 
 
 def get_loss_with_gradnorm_support(cfg, device, model):

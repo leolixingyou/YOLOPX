@@ -6,9 +6,9 @@ import logging
 from pathlib import Path
 import numpy as np
 from tqdm import tqdm
+import matplotlib.pyplot as plt
 
 import torch
-import torch.nn as nn
 from torch.cuda import amp
 import torch.optim as optim
 import torch.backends.cudnn as cudnn
@@ -22,6 +22,7 @@ WANDB_AVAILABLE = True
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(BASE_DIR)
 
+from gradient_detect import GradientConflictDetector
 from lib.utils import DataLoaderX
 import lib.dataset as dataset
 from lib.config import cfg_xy as cfg
@@ -262,9 +263,7 @@ def validate(epoch, config, val_loader, val_dataset, model, criterion, output_di
                     tbox = xywh2xyxy(labels[:, 1:5])
                     scale_coords(img[si].shape[1:], tbox, shapes[si][0], shapes[si][1])
                     confusion_matrix.process_batch(pred, torch.cat((labels[:, 0:1], tbox), 1))
-                    if wandb and wandb.run:
-                        wandb.log({"Images": wandb_images})
-                        wandb.log({"Validation": [wandb.Image(str(f), caption=f.name) for f in sorted(save_dir.glob('test*.jpg'))]})
+
                     for cls in torch.unique(tcls_tensor):
                         ti = (cls == tcls_tensor).nonzero(as_tuple=False).view(-1)
                         pi = (cls == pred[:, 5]).nonzero(as_tuple=False).view(-1)
@@ -312,6 +311,8 @@ def train(cfg, train_loader, model, criterion, optimizer, scaler, epoch, num_bat
     model.train()
     start = time.time()
     
+    conflict_detector = GradientConflictDetector(model)
+
     train_pbar = tqdm(train_loader, desc=f'Epoch {epoch}', 
                       bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]')
     
@@ -340,6 +341,24 @@ def train(cfg, train_loader, model, criterion, optimizer, scaler, epoch, num_bat
             outputs = model(input)
             total_loss, head_losses = criterion(outputs, target, shapes, model, input)
         
+        all_metrics = conflict_detector.detect_all_metrics(head_losses)
+
+        cos_similarity_fig = conflict_detector.plot_similarity_heatmap()
+        norm_fig = conflict_detector.plot_gradient_norms()
+
+        if wandb_run is not None:
+            log_dict = all_metrics.copy()
+            if cos_similarity_fig:
+                log_dict['gradient_similarity_heatmap'] = wandb.Image(cos_similarity_fig)
+                plt.close(cos_similarity_fig)
+            if norm_fig:
+                log_dict['gradient_norms_chart'] = wandb.Image(norm_fig)
+                plt.close(norm_fig)
+            
+            log_dict.update({'epoch': epoch, 'batch': i})
+            wandb_run.log(log_dict)
+
+        
         # 反向传播
         optimizer.zero_grad()
         scaler.scale(total_loss).backward()
@@ -352,6 +371,7 @@ def train(cfg, train_loader, model, criterion, optimizer, scaler, epoch, num_bat
         
         # 打印和记录
         if i % cfg.PRINT_FREQ == 0:
+            
             msg = f'Epoch: [{epoch}][{i}/{len(train_loader)}]\t' \
                   f'Time {batch_time.val:.3f}s ({batch_time.avg:.3f}s)\t' \
                   f'Speed {input.size(0)/batch_time.val:.1f} samples/s\t' \
@@ -362,9 +382,13 @@ def train(cfg, train_loader, model, criterion, optimizer, scaler, epoch, num_bat
             
             # Wandb记录
             if wandb_run is not None:
+                det_loss, da_seg_loss, ll_seg_loss, ll_tversky_loss, _ = head_losses
                 wandb_run.log({
-                    'train_loss': losses.val,
-                    'train_loss_avg': losses.avg,
+                    'train_total_loss': total_loss.item(),
+                    'train_det_loss': det_loss.item(),
+                    'train_da_seg_loss': da_seg_loss.item(), 
+                    'train_ll_seg_loss': ll_seg_loss.item(),
+                    'train_ll_tversky_loss': ll_tversky_loss.item(),
                     'learning_rate': optimizer.param_groups[0]['lr'],
                     'epoch': epoch,
                     'batch': i
@@ -387,6 +411,7 @@ def main():
     args = parse_args()
     update_config(cfg, args)
     
+
     # 设置日志和wandb
     device, logger, output_dir, wandb_run = setup_logging(cfg)
     logger.info(f"Using device: {device}")
@@ -400,9 +425,15 @@ def main():
     # 创建模型
     logger.info("Building model...")
     model = get_net_from_yaml(cfg.MODEL.CONFIG).to(device)
+
     model.gr = 1.0
     model.nc = 1
     
+    # 创建数据加载器
+    logger.info("Loading data...")
+    train_loader, valid_loader, valid_dataset = create_data_loaders(cfg)
+    logger.info("Data loaded successfully")
+
     # 损失函数和优化器
     criterion = get_loss(cfg, device, model)
     optimizer = get_optimizer(cfg, model)
@@ -413,12 +444,7 @@ def main():
     
     # 加载预训练模型
     begin_epoch = load_pretrained_model(model, optimizer, cfg, logger)
-    
-    # 创建数据加载器
-    logger.info("Loading data...")
-    train_loader, valid_loader, valid_dataset = create_data_loaders(cfg)
-    logger.info("Data loaded successfully")
-    
+
     # 训练设置
     num_batch = len(train_loader)
     num_warmup = max(round(cfg.TRAIN.WARMUP_EPOCHS * num_batch), 1000)
