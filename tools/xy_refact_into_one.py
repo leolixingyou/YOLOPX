@@ -301,8 +301,7 @@ def validate(epoch, config, val_loader, val_dataset, model, criterion, output_di
     
     return da_segment_result, ll_segment_result, detect_result, losses.avg, None, t
 
-
-def train(cfg, train_loader, model, criterion, optimizer, scaler, epoch, num_batch, num_warmup, logger, device, wandb_run=None):
+def train(cfg, train_loader, model, criterion, optimizer, scaler, epoch, num_batch, num_warmup, logger, device, wandb_run=None, conflict_detector=None):
     """训练一个epoch"""
     batch_time = AverageMeter()
     data_time = AverageMeter()
@@ -310,8 +309,6 @@ def train(cfg, train_loader, model, criterion, optimizer, scaler, epoch, num_bat
     
     model.train()
     start = time.time()
-    
-    conflict_detector = GradientConflictDetector(model)
 
     train_pbar = tqdm(train_loader, desc=f'Epoch {epoch}', 
                       bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]')
@@ -319,7 +316,7 @@ def train(cfg, train_loader, model, criterion, optimizer, scaler, epoch, num_bat
     for i, (input, target, paths, shapes) in enumerate(train_pbar):
         num_iter = i + num_batch * (epoch - 1)
         
-        # Warmup学习率调整
+        # Warmup学习率调整 (保持原有逻辑)
         if num_iter < num_warmup:
             lf = lambda x: ((1 + math.cos(x * math.pi / cfg.TRAIN.END_EPOCH)) / 2) * \
                            (1 - cfg.TRAIN.LRF) + cfg.TRAIN.LRF
@@ -341,23 +338,22 @@ def train(cfg, train_loader, model, criterion, optimizer, scaler, epoch, num_bat
             outputs = model(input)
             total_loss, head_losses = criterion(outputs, target, shapes, model, input)
         
-        all_metrics = conflict_detector.detect_all_metrics(head_losses)
-
-        cos_similarity_fig = conflict_detector.plot_similarity_heatmap()
-        norm_fig = conflict_detector.plot_gradient_norms()
-
-        if wandb_run is not None:
-            log_dict = all_metrics.copy()
-            if cos_similarity_fig:
-                log_dict['gradient_similarity_heatmap'] = wandb.Image(cos_similarity_fig)
-                plt.close(cos_similarity_fig)
-            if norm_fig:
-                log_dict['gradient_norms_chart'] = wandb.Image(norm_fig)
-                plt.close(norm_fig)
-            
-            log_dict.update({'epoch': epoch, 'batch': i})
-            wandb_run.log(log_dict)
-
+        # 梯度冲突检测 - 只记录指定指标
+        if conflict_detector is not None:
+            metrics = conflict_detector.detect_all_metrics(head_losses)
+            if wandb_run is not None and i % cfg.PRINT_FREQ == 0:
+                # 只记录需要的指标
+                wandb_metrics = {}
+                required_metrics = ['task_conflict_intensity', 'gradient_conflict_rate', 
+                                  'directional_conflict', 'magnitude_conflict',
+                                  'det_ll_cosine', 'det_da_cosine', 'da_ll_cosine']
+                
+                for key in required_metrics:
+                    if key in metrics and isinstance(metrics[key], (int, float)):
+                        wandb_metrics[key] = metrics[key]
+                
+                wandb_metrics.update({'epoch': epoch, 'batch': i})
+                wandb_run.log(wandb_metrics)
         
         # 反向传播
         optimizer.zero_grad()
@@ -371,7 +367,6 @@ def train(cfg, train_loader, model, criterion, optimizer, scaler, epoch, num_bat
         
         # 打印和记录
         if i % cfg.PRINT_FREQ == 0:
-            
             msg = f'Epoch: [{epoch}][{i}/{len(train_loader)}]\t' \
                   f'Time {batch_time.val:.3f}s ({batch_time.avg:.3f}s)\t' \
                   f'Speed {input.size(0)/batch_time.val:.1f} samples/s\t' \
@@ -410,7 +405,7 @@ def main():
     # 解析参数和配置
     args = parse_args()
     update_config(cfg, args)
-    
+
 
     # 设置日志和wandb
     device, logger, output_dir, wandb_run = setup_logging(cfg)
@@ -450,6 +445,7 @@ def main():
     num_warmup = max(round(cfg.TRAIN.WARMUP_EPOCHS * num_batch), 1000)
     scaler = amp.GradScaler(enabled=device.type != 'cpu')
     
+    conflict_detector = GradientConflictDetector(model)
     logger.info("Starting training...")
     learn_epoch = cfg.TRAIN.END_EPOCH - cfg.TRAIN.BEGIN_EPOCH
     
@@ -457,7 +453,7 @@ def main():
     for epoch in range(begin_epoch + 1, begin_epoch + learn_epoch + 1):
         # 训练一个epoch
         train(cfg, train_loader, model, criterion, optimizer, scaler,
-              epoch, num_batch, num_warmup, logger, device, wandb_run)
+              epoch, num_batch, num_warmup, logger, device, wandb_run, conflict_detector)
         
         lr_scheduler.step()
         
@@ -502,6 +498,26 @@ def main():
                 output_dir=output_dir, filename=f'epoch-{epoch}.pth'
             )
     
+
+    try:
+        final_plots = conflict_detector.generate_comprehensive_plots()
+        
+        if wandb_run is not None and final_plots:
+            # 上传最终的综合分析图表
+            for plot_name, fig in final_plots.items():
+                wandb_run.log({f"final_{plot_name}": wandb.Image(fig)})
+                plt.close(fig)  # 释放内存
+            
+            # 上传训练总结
+            summary = conflict_detector.get_training_summary()
+            wandb_run.log({"training_summary": summary})
+        
+        logger.info("Comprehensive analysis completed and uploaded to wandb")
+        
+    except Exception as e:
+        logger.warning(f"Failed to generate final plots: {e}")
+
+
     # 保存最终模型
     final_model_file = os.path.join(output_dir, 'final_state.pth')
     logger.info(f"Saving final model to {final_model_file}")
