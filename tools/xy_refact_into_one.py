@@ -23,6 +23,8 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(BASE_DIR)
 
 from gradient_detect import GradientConflictDetector
+from conflict_solver import GradientConflictSolver
+
 from lib.utils import DataLoaderX
 import lib.dataset as dataset
 from lib.config import cfg_xy as cfg
@@ -55,7 +57,7 @@ class AverageMeter(object):
         self.avg = self.sum / self.count if self.count != 0 else 0
 
 
-def setup_logging(cfg):
+def setup_logging(cfg, conflict_method=None):
     """设置日志和设备"""
     # 设备选择
     device = torch.device('cuda' if torch.cuda.is_available() and not cfg.DEBUG else 'cpu')
@@ -82,8 +84,13 @@ def setup_logging(cfg):
     wandb_run = None
     if WANDB_AVAILABLE:
         try:
+            # 构建项目名称，添加冲突解决方法
+            project_name = f"multitask-training-{cfg.DATASET.DATASET}"
+            if conflict_method:
+                project_name += f"_{conflict_method}"
+            
             wandb_run = wandb.init(
-                project=f"multitask-training-{cfg.DATASET.DATASET}",
+                project=project_name,
                 name=f"train_{time_str}",
                 config={
                     "dataset": cfg.DATASET.DATASET,
@@ -92,6 +99,7 @@ def setup_logging(cfg):
                     "batch_size": cfg.TRAIN.BATCH_SIZE_PER_GPU,
                     "learning_rate": cfg.TRAIN.LR0,
                     "optimizer": cfg.TRAIN.OPTIMIZER,
+                    "conflict_method": conflict_method or "standard"
                 }
             )
             logger.info("Wandb initialized successfully")
@@ -100,6 +108,7 @@ def setup_logging(cfg):
             wandb_run = None
     
     return device, logger, str(log_dir), wandb_run
+
 
 
 def create_data_loaders(cfg):
@@ -301,7 +310,8 @@ def validate(epoch, config, val_loader, val_dataset, model, criterion, output_di
     
     return da_segment_result, ll_segment_result, detect_result, losses.avg, None, t
 
-def train(cfg, train_loader, model, criterion, optimizer, scaler, epoch, num_batch, num_warmup, logger, device, wandb_run=None, conflict_detector=None):
+def train(cfg, train_loader, model, criterion, optimizer, scaler, epoch, num_batch, num_warmup, logger, 
+          device, wandb_run=None, conflict_detector=None, conflict_solver=None):
     """训练一个epoch"""
     batch_time = AverageMeter()
     data_time = AverageMeter()
@@ -339,23 +349,32 @@ def train(cfg, train_loader, model, criterion, optimizer, scaler, epoch, num_bat
             total_loss, head_losses = criterion(outputs, target, shapes, model, input)
         
         # 梯度冲突检测 - 只记录指定指标
-        if conflict_detector is not None:
-            metrics = conflict_detector.detect_all_metrics(head_losses)
-            if wandb_run is not None and i % cfg.PRINT_FREQ == 0:
-                # 只记录需要的指标
-                wandb_metrics = {}
-                required_metrics = ['task_conflict_intensity', 'gradient_conflict_rate', 
-                                  'directional_conflict', 'magnitude_conflict',
-                                  'det_ll_cosine', 'det_da_cosine', 'da_ll_cosine']
-                
-                for key in required_metrics:
-                    if key in metrics and isinstance(metrics[key], (int, float)):
-                        wandb_metrics[key] = metrics[key]
-                
-                wandb_metrics.update({'epoch': epoch, 'batch': i})
-                wandb_run.log(wandb_metrics)
+        conflict_metrics = conflict_detector.detect_all_metrics(head_losses)
+        if wandb_run is not None and i % cfg.PRINT_FREQ == 0:
+            # 只记录需要的指标
+            wandb_metrics = {}
+            required_metrics = ['task_conflict_intensity', 'gradient_conflict_rate', 
+                                'directional_conflict', 'magnitude_conflict',
+                                'det_ll_cosine', 'det_da_cosine', 'da_ll_cosine']
+            
+            for key in required_metrics:
+                if key in conflict_metrics and isinstance(conflict_metrics[key], (int, float)):
+                    wandb_metrics[key] = conflict_metrics[key]
+            
+            wandb_metrics.update({'epoch': epoch, 'batch': i})
+            wandb_run.log(wandb_metrics)
         
         # 反向传播
+        # 梯度冲突解决
+
+        # 梯度冲突检测
+        conflict_metrics = conflict_detector.detect_all_metrics(head_losses)
+        
+        # 梯度冲突解决 - 统一处理
+        if conflict_solver is not None:
+            total_loss = conflict_solver.get_weighted_loss(head_losses)
+        
+        # 统一的反向传播流程
         optimizer.zero_grad()
         scaler.scale(total_loss).backward()
         scaler.step(optimizer)
@@ -364,7 +383,46 @@ def train(cfg, train_loader, model, criterion, optimizer, scaler, epoch, num_bat
         # 记录指标
         losses.update(total_loss.item(), input.size(0))
         batch_time.update(time.time() - start)
-        
+
+        # 记录wandb指标
+        if wandb_run is not None and i % cfg.PRINT_FREQ == 0:
+            # 冲突检测指标
+            required_metrics = ['task_conflict_intensity', 'gradient_conflict_rate', 
+                              'directional_conflict', 'magnitude_conflict',
+                              'det_ll_cosine', 'det_da_cosine', 'da_ll_cosine']
+            
+            log_dict = {}
+            for key in required_metrics:
+                if key in conflict_metrics and isinstance(conflict_metrics[key], (int, float)):
+                    log_dict[key] = conflict_metrics[key]
+            
+            # 损失指标
+            det_loss, da_seg_loss, ll_seg_loss, ll_tversky_loss, _ = head_losses
+            log_dict.update({
+                'train_total_loss': total_loss.item(),
+                'train_det_loss': det_loss.item(),
+                'train_da_seg_loss': da_seg_loss.item(), 
+                'train_ll_seg_loss': ll_seg_loss.item(),
+                'train_ll_tversky_loss': ll_tversky_loss.item(),
+                'learning_rate': optimizer.param_groups[0]['lr'],
+                'epoch': epoch,
+                'batch': i
+            })
+            
+            # 添加解决器特定信息
+            if conflict_solver is not None:
+                method_info = conflict_solver.get_method_info()
+                if conflict_solver.method == 'gradnorm' and 'current_weights' in method_info and method_info['current_weights'] is not None:
+                    weights = method_info['current_weights']
+                    log_dict.update({
+                        'gradnorm_weight_det': weights[0].item(),
+                        'gradnorm_weight_da': weights[1].item(),
+                        'gradnorm_weight_ll': weights[2].item()
+                    })
+            
+            wandb_run.log(log_dict)
+
+
         # 打印和记录
         if i % cfg.PRINT_FREQ == 0:
             msg = f'Epoch: [{epoch}][{i}/{len(train_loader)}]\t' \
@@ -375,19 +433,7 @@ def train(cfg, train_loader, model, criterion, optimizer, scaler, epoch, num_bat
             
             logger.info(msg)
             
-            # Wandb记录
-            if wandb_run is not None:
-                det_loss, da_seg_loss, ll_seg_loss, ll_tversky_loss, _ = head_losses
-                wandb_run.log({
-                    'train_total_loss': total_loss.item(),
-                    'train_det_loss': det_loss.item(),
-                    'train_da_seg_loss': da_seg_loss.item(), 
-                    'train_ll_seg_loss': ll_seg_loss.item(),
-                    'train_ll_tversky_loss': ll_tversky_loss.item(),
-                    'learning_rate': optimizer.param_groups[0]['lr'],
-                    'epoch': epoch,
-                    'batch': i
-                })
+
         
         start = time.time()
 
@@ -401,135 +447,167 @@ def parse_args():
     return parser.parse_args()
 
 
-def main():
-    # 解析参数和配置
-    args = parse_args()
-    update_config(cfg, args)
-
-
+def run_experiment(conflict_method, shared_resources):
+    """运行单个实验，使用共享资源"""
+    cfg, device, train_loader, valid_loader, valid_dataset, model, criterion, optimizer, lr_scheduler, scaler, conflict_detector = shared_resources
+    
     # 设置日志和wandb
-    device, logger, output_dir, wandb_run = setup_logging(cfg)
-    logger.info(f"Using device: {device}")
-    logger.info(f"Output directory: {output_dir}")
+    time_str = time.strftime('%Y-%m-%d-%H-%M')
+    log_dir = Path(cfg.LOG_DIR) / cfg.DATASET.DATASET / f'train_{time_str}_{conflict_method or "standard"}'
+    log_dir.mkdir(parents=True, exist_ok=True)
     
-    # 设置cudnn
-    cudnn.benchmark = cfg.CUDNN.BENCHMARK
-    cudnn.deterministic = cfg.CUDNN.DETERMINISTIC
-    cudnn.enabled = cfg.CUDNN.ENABLED
+    # 简化日志配置
+    logger = logging.getLogger(f'{conflict_method or "standard"}')
+    handler = logging.FileHandler(log_dir / f'train_{time_str}.log')
+    handler.setFormatter(logging.Formatter('%(asctime)-15s %(message)s'))
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
     
-    # 创建模型
-    logger.info("Building model...")
-    model = get_net_from_yaml(cfg.MODEL.CONFIG).to(device)
-
-    model.gr = 1.0
-    model.nc = 1
+    # 初始化wandb
+    wandb_run = None
+    if WANDB_AVAILABLE:
+        try:
+            project_name = f"multitask-training-{cfg.DATASET.DATASET}"
+            if conflict_method:
+                project_name += f"_{conflict_method}"
+            
+            wandb_run = wandb.init(
+                project=project_name,
+                name=f"train_{time_str}_{conflict_method or 'standard'}",
+                config={
+                    "dataset": cfg.DATASET.DATASET,
+                    "conflict_method": conflict_method or "standard"
+                }
+            )
+        except Exception as e:
+            logger.warning(f"Failed to initialize wandb: {e}")
     
-    # 创建数据加载器
-    logger.info("Loading data...")
-    train_loader, valid_loader, valid_dataset = create_data_loaders(cfg)
-    logger.info("Data loaded successfully")
-
-    # 损失函数和优化器
-    criterion = get_loss(cfg, device, model)
-    optimizer = get_optimizer(cfg, model)
+    # 初始化conflict_solver
+    conflict_solver = None
+    if conflict_method:
+        if conflict_method == 'gradnorm':
+            conflict_solver = GradientConflictSolver(method='gradnorm', num_tasks=3, device=device, alpha=1.5)
+        elif conflict_method == 'pcgrad':
+            conflict_solver = GradientConflictSolver(method='pcgrad', num_tasks=3, device=device)
+        elif conflict_method == 'cagrad':
+            conflict_solver = GradientConflictSolver(method='cagrad', num_tasks=3, device=device, c=0.5)
+        logger.info(f"Using conflict resolution: {conflict_method}")
+    else:
+        logger.info("Using standard gradient descent")
     
-    # 学习率调度器
-    lf = lambda x: ((1 + math.cos(x * math.pi / cfg.TRAIN.END_EPOCH)) / 2) * (1 - cfg.TRAIN.LRF) + cfg.TRAIN.LRF
-    lr_scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lf)
+    # 克隆模型和优化器状态（避免相互影响）
+    import copy
+    model_copy = copy.deepcopy(model)
+    optimizer_copy = get_optimizer(cfg, model_copy)
+    lr_scheduler_copy = optim.lr_scheduler.LambdaLR(optimizer_copy, lr_lambda=lambda x: ((1 + math.cos(x * math.pi / cfg.TRAIN.END_EPOCH)) / 2) * (1 - cfg.TRAIN.LRF) + cfg.TRAIN.LRF)
     
     # 加载预训练模型
-    begin_epoch = load_pretrained_model(model, optimizer, cfg, logger)
-
-    # 训练设置
+    begin_epoch = load_pretrained_model(model_copy, optimizer_copy, cfg, logger)
+    
+    # 训练参数
     num_batch = len(train_loader)
     num_warmup = max(round(cfg.TRAIN.WARMUP_EPOCHS * num_batch), 1000)
-    scaler = amp.GradScaler(enabled=device.type != 'cpu')
-    
-    conflict_detector = GradientConflictDetector(model)
-    logger.info("Starting training...")
     learn_epoch = cfg.TRAIN.END_EPOCH - cfg.TRAIN.BEGIN_EPOCH
+    
+    logger.info(f"Starting training with {conflict_method or 'standard'} method...")
     
     # 训练循环
     for epoch in range(begin_epoch + 1, begin_epoch + learn_epoch + 1):
-        # 训练一个epoch
-        train(cfg, train_loader, model, criterion, optimizer, scaler,
-              epoch, num_batch, num_warmup, logger, device, wandb_run, conflict_detector)
+        train(cfg, train_loader, model_copy, criterion, optimizer_copy, scaler,
+              epoch, num_batch, num_warmup, logger, device, wandb_run, 
+              conflict_detector, conflict_solver)
         
-        lr_scheduler.step()
+        lr_scheduler_copy.step()
         
-        # 验证和保存
-        if epoch % cfg.TRAIN.VAL_FREQ == 0 or epoch == cfg.TRAIN.END_EPOCH:
-            # 验证
+        # 简化验证（只在最后几个epoch进行）
+        if epoch >= cfg.TRAIN.END_EPOCH - 2:
             da_results, ll_results, detect_results, total_loss, _, times = validate(
-                epoch, cfg, valid_loader, valid_dataset, model, criterion,
-                output_dir, logger, device, wandb_run
+                epoch, cfg, valid_loader, valid_dataset, model_copy, criterion,
+                str(log_dir), logger, device, wandb_run
             )
             
-            # 记录结果
-            msg = (f'Epoch: [{epoch}] Loss({total_loss:.3f})\n'
-                   f'Driving area Segment: Acc({da_results[0]:.3f}) IOU({da_results[1]:.3f}) mIOU({da_results[2]:.3f})\n'
-                   f'Lane line Segment: Acc({ll_results[0]:.3f}) IOU({ll_results[1]:.3f}) mIOU({ll_results[2]:.3f})\n'
-                   f'Detect: P({detect_results[0]:.3f}) R({detect_results[1]:.3f}) mAP@0.5({detect_results[2]:.3f}) mAP@0.5:0.95({detect_results[3]:.3f})\n'
-                   f'Time: inference({times[0]:.4f}s/frame) nms({times[1]:.4f}s/frame)')
-            logger.info(msg)
-            
-            # Wandb记录验证结果
             if wandb_run is not None:
                 wandb_run.log({
                     'val_loss': total_loss,
-                    'val_da_acc': da_results[0],
-                    'val_da_iou': da_results[1],
                     'val_da_miou': da_results[2],
-                    'val_ll_acc': ll_results[0],
-                    'val_ll_iou': ll_results[1],
                     'val_ll_miou': ll_results[2],
-                    'val_det_precision': detect_results[0],
-                    'val_det_recall': detect_results[1],
-                    'val_det_map50': detect_results[2],
                     'val_det_map': detect_results[3],
-                    'inference_time': times[0],
-                    'nms_time': times[1],
                     'epoch': epoch
                 })
-            
-            # 保存模型
-            save_checkpoint(
-                epoch=epoch, name=cfg.MODEL.NAME, model=model, optimizer=optimizer,
-                output_dir=output_dir, filename=f'epoch-{epoch}.pth'
-            )
     
-
-    try:
-        final_plots = conflict_detector.generate_comprehensive_plots()
-        
-        if wandb_run is not None and final_plots:
-            # 上传最终的综合分析图表
-            for plot_name, fig in final_plots.items():
-                wandb_run.log({f"final_{plot_name}": wandb.Image(fig)})
-                plt.close(fig)  # 释放内存
-            
-            # 上传训练总结
-            summary = conflict_detector.get_training_summary()
-            wandb_run.log({"training_summary": summary})
-        
-        logger.info("Comprehensive analysis completed and uploaded to wandb")
-        
-    except Exception as e:
-        logger.warning(f"Failed to generate final plots: {e}")
-
-
     # 保存最终模型
-    final_model_file = os.path.join(output_dir, 'final_state.pth')
-    logger.info(f"Saving final model to {final_model_file}")
-    model_state = model.module.state_dict() if is_parallel(model) else model.state_dict()
+    final_model_file = log_dir / 'final_state.pth'
+    model_state = model_copy.module.state_dict() if is_parallel(model_copy) else model_copy.state_dict()
     torch.save(model_state, final_model_file)
     
     # 关闭wandb
     if wandb_run is not None:
         wandb_run.finish()
     
-    logger.info("Training completed successfully!")
+    logger.info(f"Training completed for {conflict_method or 'standard'}!")
+    return str(log_dir)
+
+
+def main_optimized():
+    """优化的主函数 - 避免重复初始化"""
+    # 解析参数和配置（只做一次）
+    args = parse_args()
+    update_config(cfg, args)
+    
+    device = torch.device('cuda' if torch.cuda.is_available() and not cfg.DEBUG else 'cpu')
+    print(f"Using device: {device}")
+    
+    # 设置cudnn（只做一次）
+    cudnn.benchmark = cfg.CUDNN.BENCHMARK
+    cudnn.deterministic = cfg.CUDNN.DETERMINISTIC
+    cudnn.enabled = cfg.CUDNN.ENABLED
+    
+    # 创建数据加载器（只做一次）
+    print("Loading data...")
+    train_loader, valid_loader, valid_dataset = create_data_loaders(cfg)
+    print("Data loaded successfully")
+    
+    # 创建基础模型和组件（只做一次）
+    print("Building model...")
+    model = get_net_from_yaml(cfg.MODEL.CONFIG).to(device)
+    model.gr = 1.0
+    model.nc = 1
+    
+    criterion = get_loss(cfg, device, model)
+    optimizer = get_optimizer(cfg, model)
+    
+    lf = lambda x: ((1 + math.cos(x * math.pi / cfg.TRAIN.END_EPOCH)) / 2) * (1 - cfg.TRAIN.LRF) + cfg.TRAIN.LRF
+    lr_scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lf)
+    scaler = amp.GradScaler(enabled=device.type != 'cpu')
+    conflict_detector = GradientConflictDetector(model)
+    
+    # 共享资源
+    shared_resources = (cfg, device, train_loader, valid_loader, valid_dataset, 
+                       model, criterion, optimizer, lr_scheduler, scaler, conflict_detector)
+    
+    # 运行所有实验
+    methods = ['gradnorm', 'pcgrad', 'cagrad', None]
+    results = []
+    
+    for method in methods:
+        print(f"\n{'='*50}")
+        print(f"Starting experiment with method: {method or 'standard'}")
+        print(f"{'='*50}")
+        
+        result_dir = run_experiment(method, shared_resources)
+        results.append((method or 'standard', result_dir))
+        
+        # 清理GPU内存
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    
+    print(f"\n{'='*50}")
+    print("All experiments completed!")
+    print("Results saved in:")
+    for method, result_dir in results:
+        print(f"  {method}: {result_dir}")
+    print(f"{'='*50}")
 
 
 if __name__ == '__main__':
-    main()
+    main_optimized()
