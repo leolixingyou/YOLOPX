@@ -417,3 +417,100 @@ class GradientConflictDetector:
         summary['task_pair_relationships'] = pair_interpretations
         
         return summary
+
+
+    def detect_conflicts_from_gradients(self, task_gradients, task_losses):
+        """
+        直接从任务梯度检测冲突
+        
+        Args:
+            task_gradients: List[Tensor] - 每个任务的梯度向量
+            task_losses: List[Tensor] - 每个任务的损失值
+        
+        Returns:
+            dict: 冲突指标字典
+        """
+        if len(task_gradients) < 2:
+            return {}
+        
+        try:
+            metrics = {}
+            
+            # 确保所有梯度在同一设备上
+            device = task_gradients[0].device
+            gradients = [g.to(device) for g in task_gradients]
+            
+            # 计算梯度范数
+            grad_norms = [torch.norm(g, p=2) for g in gradients]
+            
+            # 计算余弦相似度
+            cosine_similarities = []
+            for i in range(len(gradients)):
+                for j in range(i + 1, len(gradients)):
+                    cos_sim = torch.cosine_similarity(
+                        gradients[i].unsqueeze(0), 
+                        gradients[j].unsqueeze(0)
+                    ).item()
+                    cosine_similarities.append(cos_sim)
+            
+            # 具体的任务对余弦相似度
+            if len(gradients) >= 3:
+                metrics['det_da_cosine'] = torch.cosine_similarity(
+                    gradients[0].unsqueeze(0), gradients[1].unsqueeze(0)
+                ).item()
+                metrics['det_ll_cosine'] = torch.cosine_similarity(
+                    gradients[0].unsqueeze(0), gradients[2].unsqueeze(0)
+                ).item()
+                metrics['da_ll_cosine'] = torch.cosine_similarity(
+                    gradients[1].unsqueeze(0), gradients[2].unsqueeze(0)
+                ).item()
+            
+            # 计算冲突强度指标
+            avg_cosine = np.mean(cosine_similarities) if cosine_similarities else 0
+            
+            # 负余弦值表示冲突
+            negative_cosines = [cos for cos in cosine_similarities if cos < 0]
+            conflict_rate = len(negative_cosines) / len(cosine_similarities) if cosine_similarities else 0
+            
+            # 任务冲突强度 (值越高冲突越严重)
+            task_conflict_intensity = max(0, -avg_cosine) if avg_cosine < 0 else 0
+            
+            # 方向冲突：负余弦值的绝对值平均
+            directional_conflict = np.mean([abs(cos) for cos in negative_cosines]) if negative_cosines else 0
+            
+            # 幅度冲突：梯度范数的变异系数
+            if len(grad_norms) > 1:
+                grad_norms_tensor = torch.stack(grad_norms)
+                magnitude_conflict = (torch.std(grad_norms_tensor) / (torch.mean(grad_norms_tensor) + 1e-8)).item()
+            else:
+                magnitude_conflict = 0
+            
+            metrics.update({
+                'task_conflict_intensity': task_conflict_intensity,
+                'gradient_conflict_rate': conflict_rate,
+                'directional_conflict': directional_conflict,
+                'magnitude_conflict': magnitude_conflict,
+                'avg_cosine_similarity': avg_cosine,
+                'grad_norm_std': torch.std(torch.stack(grad_norms)).item() if len(grad_norms) > 1 else 0
+            })
+            
+            # 存储历史数据用于后续分析
+            self.history['task_conflict_intensity'].append(task_conflict_intensity)
+            self.history['gradient_conflict_rate'].append(conflict_rate)
+            self.history['directional_conflict'].append(directional_conflict)
+            self.history['magnitude_conflict'].append(magnitude_conflict)
+            
+            if len(gradients) >= 3:
+                self.history['det_da_cosine'].append(metrics['det_da_cosine'])
+                self.history['det_ll_cosine'].append(metrics['det_ll_cosine'])
+                self.history['da_ll_cosine'].append(metrics['da_ll_cosine'])
+            
+            # 存储损失信息
+            losses_cpu = [loss.item() if hasattr(loss, 'item') else loss for loss in task_losses]
+            self.history['task_losses'].append(losses_cpu)
+            
+            return metrics
+            
+        except Exception as e:
+            print(f"Error in conflict detection: {e}")
+            return {}

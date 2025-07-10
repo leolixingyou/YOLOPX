@@ -83,3 +83,4 @@ class GradientConflictSolver:
             return {'method': 'GradNorm', 'weights': self.task_weights}
         else:
             return {'method': self.method}
+        
