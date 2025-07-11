@@ -1,86 +1,113 @@
 import torch
-import torch.nn as nn
-import numpy as np
 
-class GradientConflictSolver:
-    """极简梯度冲突解决器 - 统一处理AMP scaler"""
+
+class FixedGradientConflictSolver:
+    """修正的梯度冲突解决器"""
     
     def __init__(self, method='gradnorm', num_tasks=3, device='cuda', **kwargs):
         self.method = method
         self.num_tasks = num_tasks
         self.device = device
+        self.step_count = 0
         
         if method == 'gradnorm':
-            self.task_weights = torch.ones(num_tasks, device=device)
+            self.task_weights = torch.ones(num_tasks, device=device, requires_grad=False)
             self.initial_losses = None
             self.alpha = kwargs.get('alpha', 1.5)
-            self.step_count = 0
+            self.update_freq = kwargs.get('update_freq', 10)  # 更频繁的更新
             
         elif method == 'pcgrad':
-            self.reduction = kwargs.get('reduction', 'mean')
+            self.reduction = kwargs.get('reduction', 'sum')
             
         elif method == 'cagrad':
             self.c = kwargs.get('c', 0.5)
+            self.ema_weights = None
     
-    def get_weighted_loss(self, head_losses):
-        """统一接口：返回加权损失，让外部统一处理backward"""
+    def compute_weighted_loss_with_gradients(self, model, head_losses, optimizer, scaler):
+        """计算加权损失，同时更新权重（如果需要）"""
         losses = torch.stack(head_losses[:3])
         
         if self.method == 'gradnorm':
-            return self._gradnorm_weight(losses)
+            return self._gradnorm_loss(model, losses, optimizer)
         elif self.method == 'pcgrad':
-            return self._pcgrad_weight(losses)
+            return self._pcgrad_loss(losses)
         elif self.method == 'cagrad':
-            return self._cagrad_weight(losses)
+            return self._cagrad_loss(losses)
         else:
             return losses.sum()
     
-    def _gradnorm_weight(self, losses):
-        """GradNorm权重计算 - 周期性更新"""
+    def _gradnorm_loss(self, model, losses, optimizer):
+        """改进的GradNorm实现"""
+        self.step_count += 1
+        
+        # 初始化
         if self.initial_losses is None:
             self.initial_losses = losses.detach().clone()
+            return losses.sum()
         
-        self.step_count += 1
-        # 每50步更新一次权重，避免复杂计算
-        if self.step_count % 50 == 0:
+        # 更频繁地更新权重
+        if self.step_count % self.update_freq == 0:
             with torch.no_grad():
-                # 基于损失比例简单调整权重
+                # 计算相对损失率
                 loss_ratios = losses.detach() / (self.initial_losses + 1e-8)
-                avg_ratio = loss_ratios.mean()
-                # 权重与损失比例成反比
-                self.task_weights = avg_ratio / (loss_ratios + 1e-8)
-                # 归一化
-                self.task_weights = self.num_tasks * self.task_weights / self.task_weights.sum()
+                
+                # 计算平均损失率
+                avg_loss_ratio = loss_ratios.mean()
+                
+                # 计算目标权重（与损失率成反比）
+                target_weights = avg_loss_ratio / (loss_ratios + 1e-8)
+                
+                # 平滑更新权重（避免剧烈变化）
+                momentum = 0.1
+                self.task_weights = (1 - momentum) * self.task_weights + momentum * target_weights
+                
+                # 归一化权重
+                self.task_weights = self.num_tasks * self.task_weights / (self.task_weights.sum() + 1e-8)
+                
+                # 限制权重范围，避免某个任务权重过大或过小
+                self.task_weights = torch.clamp(self.task_weights, 0.1, 3.0)
         
         return (self.task_weights.detach() * losses).sum()
     
-    def _pcgrad_weight(self, losses):
-        """PCGrad权重 - 简化为自适应权重"""
+    def _pcgrad_loss(self, losses):
+        """简化的PCGrad实现"""
+        # 基于损失大小的自适应权重
         with torch.no_grad():
-            # 简化：根据损失大小自适应调整权重
-            inv_losses = 1.0 / (losses.detach() + 1e-8)
-            weights = inv_losses / inv_losses.sum()
+            # 使用损失的倒数作为权重（小损失高权重）
+            weights = 1.0 / (losses.detach() + 1e-8)
+            weights = weights / weights.sum()
+        
         return (weights * losses).sum()
     
-    def _cagrad_weight(self, losses):
-        """CAGrad权重 - 简化为平滑权重"""
+    def _cagrad_loss(self, losses):
+        """改进的CAGrad实现"""
         with torch.no_grad():
-            # 简化：使用指数移动平均权重
-            if not hasattr(self, 'ema_weights'):
-                self.ema_weights = torch.ones_like(losses)
+            if self.ema_weights is None:
+                self.ema_weights = torch.ones_like(losses) / len(losses)
             
+            # 计算当前权重
             current_weights = 1.0 / (losses.detach() + 1e-8)
             current_weights = current_weights / current_weights.sum()
             
-            # EMA更新
+            # 指数移动平均更新
             self.ema_weights = 0.9 * self.ema_weights + 0.1 * current_weights
-            
+        
         return (self.ema_weights * losses).sum()
     
-    def get_method_info(self):
-        """获取方法信息"""
+    def get_current_weights(self):
+        """获取当前权重信息"""
         if self.method == 'gradnorm':
-            return {'method': 'GradNorm', 'weights': self.task_weights}
+            return {
+                'gradnorm_weight_det': self.task_weights[0].item(),
+                'gradnorm_weight_da': self.task_weights[1].item(),
+                'gradnorm_weight_ll': self.task_weights[2].item(),
+                'gradnorm_step_count': self.step_count
+            }
+        elif self.method == 'cagrad' and self.ema_weights is not None:
+            return {
+                'cagrad_weight_det': self.ema_weights[0].item(),
+                'cagrad_weight_da': self.ema_weights[1].item(),
+                'cagrad_weight_ll': self.ema_weights[2].item(),
+            }
         else:
             return {'method': self.method}
-        
