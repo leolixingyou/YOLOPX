@@ -14,8 +14,6 @@ import torch.optim as optim
 import torch.backends.cudnn as cudnn
 import torchvision.transforms as transforms
 
-from collections import defaultdict
-import matplotlib.pyplot as plt
 
 # 添加wandb支持
 import wandb
@@ -343,19 +341,12 @@ def run_experiment(conflict_method, shared_resources):
     
     # 初始化conflict_solver
     conflict_solver = None
-    if conflict_method:
-        if conflict_method == 'gradnorm':
-            # conflict_solver = GradientConflictSolver(method='gradnorm', num_tasks=3, device=device, alpha=1.5)
-            conflict_solver = FixedGradientConflictSolver(method='gradnorm', num_tasks=3, device=device, alpha=1.5)
-        elif conflict_method == 'pcgrad':
-            # conflict_solver = GradientConflictSolver(method='pcgrad', num_tasks=3, device=device)
-            conflict_solver = FixedGradientConflictSolver(method='pcgrad', num_tasks=3, device=device)
-        elif conflict_method == 'cagrad':
-            # conflict_solver = GradientConflictSolver(method='cagrad', num_tasks=3, device=device, c=0.5)
-            conflict_solver = FixedGradientConflictSolver(method='cagrad', num_tasks=3, device=device, c=0.5)
-        logger.info(f"Using conflict resolution: {conflict_method}")
-    else:
-        logger.info("Using standard gradient descent")
+    solver_map = {
+        'gradnorm': FixedGradientConflictSolver(method='gradnorm', num_tasks=3, device=device, alpha=1.5),
+        'pcgrad': FixedGradientConflictSolver(method='pcgrad', num_tasks=3, device=device),
+        'cagrad': FixedGradientConflictSolver(method='cagrad', num_tasks=3, device=device, c=0.5)
+    }
+    conflict_solver = solver_map.get(conflict_method)
     
     # 克隆模型和优化器状态
     import copy
@@ -554,6 +545,9 @@ def train_fixed(cfg, train_loader, model, criterion, optimizer, scaler, epoch, n
                 if isinstance(value, (int, float)) and not np.isnan(value):
                     log_dict[key] = value
             
+            if "task_conflict_intensity" in conflict_metrics:
+                log_dict['task_conflict_intensity'] = conflict_metrics["task_conflict_intensity"]
+
             # 添加解决器权重信息
             if conflict_solver is not None:
                 solver_info = conflict_solver.get_current_weights()

@@ -142,11 +142,12 @@ _C.TEST.NMS_CONF_THRESHOLD  = 0.001
 _C.TEST.NMS_IOU_THRESHOLD  = 0.6
 
 
+
 # conflict with other params
 _C.USE_GRADNORM = True  # use grad norm to adjust learning rate
-_C.DATASET.NUMBER_IMAGE = 100
+_C.DATASET.NUMBER_IMAGE = 10000
 _C.TRAIN.BEGIN_EPOCH = 0
-_C.TRAIN.END_EPOCH = 2 # default 200
+_C.TRAIN.END_EPOCH = 10 # default 200
 _C.MODEL.CONFIG = "/workspace/YOLOPX/lib/config/yolopx.yaml"
 _C.CONFLICTSOLVER = "gradnorm"  # gradnorm, pcgrad, cagrad
 

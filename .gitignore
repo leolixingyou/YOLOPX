@@ -13,3 +13,4 @@ inference/
 *.pt
 runs/
 yolop_train/
+*wandb/
