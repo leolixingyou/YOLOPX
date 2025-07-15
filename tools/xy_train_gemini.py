@@ -14,7 +14,6 @@ import torch.optim as optim
 import torch.backends.cudnn as cudnn
 import torchvision.transforms as transforms
 
-
 # Add wandb support
 import wandb
 WANDB_AVAILABLE = True
@@ -35,6 +34,7 @@ from lib.utils.utils import get_optimizer
 # Corrected import paths for custom modules
 from xy_conflict_detect_gemini import FixedGradientConflictDetector
 from xy_conflict_solver_gemini import FixedGradientConflictSolver
+from mdo_optimizer import MDO_Optimizer
 
 from lib.core.evaluate import ConfusionMatrix, SegmentationMetric
 from lib.core.general import non_max_suppression, check_img_size, scale_coords, xywh2xyxy, box_iou, ap_per_class
@@ -162,17 +162,15 @@ def validate(epoch, config, val_loader, val_dataset, model, criterion, output_di
                 nb, _, height, width = img.shape
             
             # --- FIX for shapes parsing ---
-            pad_h, pad_w = 0, 0 # Initialize with default zero padding
+            pad_h, pad_w = 0, 0 
             if len(shapes) > 0 and len(shapes[0]) > 1:
-                padding_info = shapes[0][1] # This should be [[...], [...]] based on your debug info
+                padding_info = shapes[0][1] 
                 
                 if isinstance(padding_info, (tuple, list)) and len(padding_info) == 2:
                     if isinstance(padding_info[0], (list, torch.Tensor)) and isinstance(padding_info[1], (list, torch.Tensor)):
-                        # Access the actual numeric value from inside the inner list/tensor
                         pad_h = int(padding_info[0][0]) 
                         pad_w = int(padding_info[1][0])
                     elif isinstance(padding_info[0], (int, float)) and isinstance(padding_info[1], (int, float)):
-                        # Fallback for direct numeric values
                         pad_h = int(padding_info[0])
                         pad_w = int(padding_info[1])
                     else:
@@ -198,7 +196,7 @@ def validate(epoch, config, val_loader, val_dataset, model, criterion, output_di
             if da_seg_out is not None and target[1] is not None:
                 _, da_predict = torch.max(da_seg_out, 1)
                 _, da_gt = torch.max(target[1], 1)
-                if height > 2 * pad_h and width > 2 * pad_w: # Ensure valid crop
+                if height > 2 * pad_h and width > 2 * pad_w: 
                     da_predict = da_predict[:, pad_h:height-pad_h, pad_w:width-pad_w]
                     da_gt = da_gt[:, pad_h:height-pad_h, pad_w:width-pad_w]
                 
@@ -218,7 +216,7 @@ def validate(epoch, config, val_loader, val_dataset, model, criterion, output_di
             if ll_seg_out is not None and target[2] is not None:
                 _, ll_predict = torch.max(ll_seg_out, 1)
                 _, ll_gt = torch.max(target[2], 1)
-                if height > 2 * pad_h and width > 2 * pad_w: # Ensure valid crop
+                if height > 2 * pad_h and width > 2 * pad_w: 
                     ll_predict = ll_predict[:, pad_h:height-pad_h, pad_w:width-pad_w]
                     ll_gt = ll_gt[:, pad_h:height-pad_h, pad_w:width-pad_w]
                 
@@ -340,6 +338,8 @@ def parse_args():
     parser.add_argument('--eval_interval', type=int, default=1, help='Epoch interval for validation')
     return parser.parse_args()
 
+# Global dictionary to store training metrics for comparison plots
+all_experiment_metrics = {}
 
 def run_experiment(conflict_method, shared_resources):
     """Runs a single experiment using shared resources"""
@@ -348,11 +348,11 @@ def run_experiment(conflict_method, shared_resources):
     time_str = time.strftime('%Y%m%d-%H%M%S')
     run_id = f"run-{time_str}-{hash(time.time()) % 10000:04d}"
     
-    method_suffix = f"_{conflict_method}" if conflict_method else "_standard"
+    method_suffix = f"_{conflict_method}" if conflict_method else "_original"
     log_dir = Path(cfg.LOG_DIR) / cfg.DATASET.DATASET / f'{run_id}{method_suffix}'
     log_dir.mkdir(parents=True, exist_ok=True)
     
-    logger = logging.getLogger(f'{conflict_method or "standard"}')
+    logger = logging.getLogger(f'{conflict_method or "original"}')
     logger.handlers = []
     logger.propagate = False
     
@@ -369,7 +369,7 @@ def run_experiment(conflict_method, shared_resources):
     wandb_run = None
     if WANDB_AVAILABLE:
         try:
-            project_name = f"multitask-training-{cfg.DATASET.DATASET}_refactor" # Added _refactor for clarity
+            project_name = f"multitask-training-{cfg.DATASET.DATASET}_refactor" 
             run_name = f"{run_id}{method_suffix}"
             
             wandb_run = wandb.init(
@@ -378,7 +378,7 @@ def run_experiment(conflict_method, shared_resources):
                 config={
                     "dataset": cfg.DATASET.DATASET,
                     "model": cfg.MODEL.NAME,
-                    "conflict_method": conflict_method or "standard",
+                    "conflict_method": conflict_method or "original",
                     "epochs": cfg.TRAIN.END_EPOCH,
                     "batch_size": cfg.TRAIN.BATCH_SIZE_PER_GPU,
                     "learning_rate": cfg.TRAIN.LR0,
@@ -393,18 +393,14 @@ def run_experiment(conflict_method, shared_resources):
     import copy
     model_copy = copy.deepcopy(model_proto).to(device)
     
-    # Force single GPU usage by setting CUDA_VISIBLE_DEVICES to only one device, or remove DataParallel
-    # Removing DataParallel if it was set on prototype and forcing device
     if isinstance(model_copy, torch.nn.DataParallel):
-        model_copy = model_copy.module # Unwrap DataParallel if it was previously applied
+        model_copy = model_copy.module 
     
-    # Explicitly move model to device 0 (or a specific device) for single GPU training
-    model_copy = model_copy.to(device) # Ensure it's on the target device
+    model_copy = model_copy.to(device) 
     
-    # If device is 'cuda', ensure it's on 'cuda:0' for single GPU if multiple are present
     if str(device).startswith('cuda') and torch.cuda.device_count() > 0:
-        torch.cuda.set_device(0) # Set default device to 0
-        model_copy = model_copy.cuda(0) # Explicitly move model to cuda:0
+        torch.cuda.set_device(0) 
+        model_copy = model_copy.cuda(0)
 
     optimizer_copy = get_optimizer(cfg, model_copy)
     lr_scheduler_copy = optim.lr_scheduler.LambdaLR(
@@ -418,8 +414,8 @@ def run_experiment(conflict_method, shared_resources):
         'gradnorm': FixedGradientConflictSolver(method='gradnorm', num_tasks=3, device=device, alpha=1.5, update_freq=20),
         'pcgrad': FixedGradientConflictSolver(method='pcgrad', num_tasks=3, device=device),
         'cagrad': FixedGradientConflictSolver(method='cagrad', num_tasks=3, device=device, c=0.5),
-        'mdo': FixedGradientConflictSolver(method='mdo', num_tasks=3, device=device, update_freq=20), # FIX: Add update_freq for MDO
-        'tag': FixedGradientConflictSolver(method='tag', num_tasks=3, device=device, update_freq=20) # FIX: Add update_freq for TAG
+        'mdo': MDO_Optimizer(model_copy, num_tasks=3, device=device, update_freq=20), 
+        'tag': FixedGradientConflictSolver(method='tag', num_tasks=3, device=device, update_freq=20) 
     }
     conflict_solver_exp = solver_map.get(conflict_method)
     
@@ -430,18 +426,29 @@ def run_experiment(conflict_method, shared_resources):
     
     learn_epoch = cfg.TRAIN.END_EPOCH - cfg.TRAIN.BEGIN_EPOCH
     
-    logger.info(f"Starting training with {conflict_method or 'standard'} method...")
+    logger.info(f"Starting training with {conflict_method or 'original'} method...")
     logger.info(f"Training epochs: {begin_epoch + 1} to {begin_epoch + learn_epoch}")
     
+    # Store metrics for this experiment
+    metrics_for_plotting = {
+        'total_loss': [],
+        'task_conflict_intensity': [],
+        'epoch_num': []
+    }
+
     for epoch in range(begin_epoch + 1, begin_epoch + learn_epoch + 1):
-        train_fixed(cfg, train_loader, model_copy, criterion_proto, optimizer_copy, scaler_copy,
+        epoch_metrics = train_fixed(cfg, train_loader, model_copy, criterion_proto, optimizer_copy, scaler_copy,
               epoch, num_batch, num_warmup, logger, device, wandb_run, 
               conflict_detector_exp, conflict_solver_exp)
         
         lr_scheduler_copy.step()
         
+        # Collect metrics for plotting
+        metrics_for_plotting['total_loss'].append(epoch_metrics.get('train_total_loss_avg', float('nan')))
+        metrics_for_plotting['task_conflict_intensity'].append(epoch_metrics.get('task_conflict_intensity_avg', float('nan')))
+        metrics_for_plotting['epoch_num'].append(epoch)
 
-        if epoch >= cfg.TRAIN.END_EPOCH - 1:
+        if epoch >= cfg.TRAIN.END_EPOCH - 1: # Perform validation only at the end
             da_results, ll_results, detect_results, total_loss, _, times = validate(
                 epoch, cfg, valid_loader, valid_dataset, model_copy, criterion_proto,
                 str(log_dir), logger, device, wandb_run
@@ -502,8 +509,10 @@ def run_experiment(conflict_method, shared_resources):
     if wandb_run is not None:
         wandb_run.finish()
     
-    logger.info(f"Training completed for {conflict_method or 'standard'}!")
-    return str(log_dir)
+    logger.info(f"Training completed for {conflict_method or 'original'}!")
+    
+    # Return collected metrics for main_optimized to plot
+    return metrics_for_plotting
 
 def train_fixed(cfg, train_loader, model, criterion, optimizer, scaler, epoch, num_batch, num_warmup, logger, 
           device, wandb_run=None, conflict_detector=None, conflict_solver=None):
@@ -512,6 +521,15 @@ def train_fixed(cfg, train_loader, model, criterion, optimizer, scaler, epoch, n
     data_time = AverageMeter()
     losses = AverageMeter()
     
+    # Metrics to return for epoch-level plotting
+    epoch_metrics_accumulator = {
+        'train_total_loss': AverageMeter(),
+        'task_conflict_intensity': AverageMeter(),
+        'train_det_loss': AverageMeter(),
+        'train_da_seg_loss': AverageMeter(),
+        'train_ll_seg_loss': AverageMeter(),
+    }
+
     model.train()
     start = time.time()
 
@@ -520,9 +538,6 @@ def train_fixed(cfg, train_loader, model, criterion, optimizer, scaler, epoch, n
     
     model_to_inspect = model.module if is_parallel(model) else model
     
-    # Identify shared parameters based on typical YOLOPx naming conventions
-    # Adjust this if your model's head names are different
-    # Added 'seg_head' to the exclusion list for more robust shared parameter identification
     shared_params = [
         p for n, p in model_to_inspect.named_parameters() 
         if p.requires_grad and 
@@ -555,20 +570,19 @@ def train_fixed(cfg, train_loader, model, criterion, optimizer, scaler, epoch, n
                 assign_target.append(tgt.to(device))
             target = assign_target
         
-        optimizer.zero_grad() # Clear all gradients at the beginning of each iteration
+        optimizer.zero_grad() 
         
         with amp.autocast(enabled=device.type != 'cpu'):
             outputs = model(input)
             
-            # --- Robustness against `k out of range` and `input_val >= zero && input_val <= one` ---
             train_out, da_seg_out, ll_seg_out = outputs[0], outputs[1], outputs[2]
 
-            # Numerical stability: Clamp segmentation logits if they tend to explode/vanish
             if da_seg_out is not None:
                 da_seg_out = torch.clamp(da_seg_out, min=-1e8, max=1e8) 
             if ll_seg_out is not None:
                 ll_seg_out = torch.clamp(ll_seg_out, min=-1e8, max=1e8) 
 
+            total_loss_raw, head_losses_raw = None, None
             try:
                 total_loss_raw, head_losses_raw = criterion((train_out, da_seg_out, ll_seg_out), target, shapes, model, input)
             except RuntimeError as e:
@@ -590,39 +604,42 @@ def train_fixed(cfg, train_loader, model, criterion, optimizer, scaler, epoch, n
                     
                 else:
                     raise e
+            
+            if total_loss_raw is None or head_losses_raw is None: # Safety check
+                logger.warning("Loss computation failed for this batch. Skipping backward pass.")
+                continue
 
-            # Filter out None losses if a head is inactive/missing output for a task
-            head_losses_valid = [l for l in head_losses_raw if l is not None and l.requires_grad]
-
-            # 1. Original conflict detection (based on unmodified losses)
             conflict_metrics = {}
-            if conflict_detector is not None and i % cfg.PRINT_FREQ == 0:
+            # Conflict detection should use the raw head losses to observe actual task behavior
+            if conflict_detector is not None: 
                 conflict_metrics = conflict_detector.detect_conflicts_in_context(
                     model, head_losses_raw, optimizer, scaler 
                 )
             
-            # 2. Apply conflict resolution strategy
-            final_loss_for_backward = total_loss_raw # Default is raw total loss
+            final_loss_for_backward = total_loss_raw 
 
             if conflict_solver is not None:
-                # `compute_weighted_loss_with_gradients` will handle gradient assignment for shared_params
-                # and return the loss to be backpropagated (which might just be sum of raw losses)
                 final_loss_for_backward = conflict_solver.compute_weighted_loss_with_gradients(
-                    head_losses_raw, shared_params, scaler
-                )
+                head_losses_raw, shared_params, scaler, num_iter # 传入 num_iter 作为 step_count
+            )
             
-            # Perform backpropagation for the final loss (this will handle non-shared params gradients)
-            # For PCGrad, CAGrad, MDO, TAG, shared_params.grad is already set by the solver.
-            # This backward pass will calculate gradients for task-specific heads.
             scaler.scale(final_loss_for_backward).backward()
             scaler.step(optimizer)
             scaler.update()
             
-        # Log metrics
         losses.update(final_loss_for_backward.item(), input.size(0))
+        epoch_metrics_accumulator['train_total_loss'].update(final_loss_for_backward.item(), input.size(0))
+        
+        if len(head_losses_raw) >= 3:
+            if head_losses_raw[0] is not None: epoch_metrics_accumulator['train_det_loss'].update(head_losses_raw[0].item(), input.size(0))
+            if head_losses_raw[1] is not None: epoch_metrics_accumulator['train_da_seg_loss'].update(head_losses_raw[1].item(), input.size(0))
+            if head_losses_raw[2] is not None: epoch_metrics_accumulator['train_ll_seg_loss'].update(head_losses_raw[2].item(), input.size(0))
+
+        if 'task_conflict_intensity' in conflict_metrics:
+            epoch_metrics_accumulator['task_conflict_intensity'].update(conflict_metrics['task_conflict_intensity'], input.size(0))
+
         batch_time.update(time.time() - start)
 
-        # Log wandb metrics
         if wandb_run is not None :
             log_dict = {
                 'train_total_loss': final_loss_for_backward.item(),
@@ -631,7 +648,6 @@ def train_fixed(cfg, train_loader, model, criterion, optimizer, scaler, epoch, n
                 'batch': i
             }
             
-            # Add raw task losses
             if len(head_losses_raw) >= 3:
                 log_dict.update({
                     'train_det_loss': head_losses_raw[0].item() if head_losses_raw[0] is not None else float('nan'),
@@ -639,19 +655,16 @@ def train_fixed(cfg, train_loader, model, criterion, optimizer, scaler, epoch, n
                     'train_ll_seg_loss': head_losses_raw[2].item() if head_losses_raw[2] is not None else float('nan'),
                 })
             
-            # Add conflict metrics (log valid numerical values only)
             for key, value in conflict_metrics.items():
                 if isinstance(value, (int, float)) and not np.isnan(value):
                     log_dict[key] = value
             
-            # Add solver weights info
             if conflict_solver is not None:
                 solver_info = conflict_solver.get_current_weights()
                 log_dict.update(solver_info)
             
             wandb_run.log(log_dict)
 
-        # Print info
         if i % cfg.PRINT_FREQ == 0:
             msg = f'Epoch: [{epoch}][{i}/{len(train_loader)}]\t' \
                   f'Time {batch_time.val:.3f}s ({batch_time.avg:.3f}s)\t' \
@@ -665,6 +678,15 @@ def train_fixed(cfg, train_loader, model, criterion, optimizer, scaler, epoch, n
             logger.info(msg)
         
         start = time.time()
+    
+    # Return aggregated epoch metrics
+    return {
+        'train_total_loss_avg': epoch_metrics_accumulator['train_total_loss'].avg,
+        'task_conflict_intensity_avg': epoch_metrics_accumulator['task_conflict_intensity'].avg if epoch_metrics_accumulator['task_conflict_intensity'].count > 0 else float('nan'),
+        'train_det_loss_avg': epoch_metrics_accumulator['train_det_loss'].avg if epoch_metrics_accumulator['train_det_loss'].count > 0 else float('nan'),
+        'train_da_seg_loss_avg': epoch_metrics_accumulator['train_da_seg_loss'].avg if epoch_metrics_accumulator['train_da_seg_loss'].count > 0 else float('nan'),
+        'train_ll_seg_loss_avg': epoch_metrics_accumulator['train_ll_seg_loss'].avg if epoch_metrics_accumulator['train_ll_seg_loss'].count > 0 else float('nan'),
+    }
 
 
 def main_optimized():
@@ -688,17 +710,13 @@ def main_optimized():
     model_proto.gr = 1.0 
     model_proto.nc = 1 
 
-    # Force single GPU usage by setting CUDA_VISIBLE_DEVICES or explicitly moving model to cuda:0
-    # Remove DataParallel if it was set on prototype. We explicitly want single GPU.
     if isinstance(model_proto, torch.nn.DataParallel):
-        model_proto = model_proto.module # Unwrap DataParallel if it was previously applied
+        model_proto = model_proto.module 
     
-    # Explicitly move model to device 0 (or a specific device) for single GPU training
     if str(device).startswith('cuda') and torch.cuda.device_count() > 0:
         model_proto = model_proto.cuda(0)
-        device = torch.device('cuda:0') # Update device to reflect specific GPU
+        device = torch.device('cuda:0') 
         print(f"Forcing single GPU usage on {device}")
-
 
     criterion_proto = get_loss(cfg, device, model_proto)
     conflict_detector_proto = FixedGradientConflictDetector(model_proto)
@@ -706,25 +724,99 @@ def main_optimized():
     shared_resources = (cfg, device, train_loader, valid_loader, valid_dataset, 
                        model_proto, criterion_proto, None, None, None, conflict_detector_proto)
     
-    methods = ['gradnorm', 'pcgrad', 'cagrad', 'mdo', 'tag', None]
-    results = []
+    methods = ['gradnorm', 'pcgrad', 'cagrad', 'mdo', None] # None for original
+    # methods = ['mdo', 'tag', None] # None for original
+    global all_experiment_metrics
+    all_experiment_metrics = {} # Reset global metrics for each run of main_optimized
     
     for method in methods:
+        method_name = method or 'original'
         print(f"\n{'='*50}")
-        print(f"Starting experiment with method: {method or 'standard'}")
+        print(f"Starting experiment with method: {method_name}")
         print(f"{'='*50}")
         
-        result_dir = run_experiment(method, shared_resources)
-        results.append((method or 'standard', result_dir))
+        collected_metrics = run_experiment(method, shared_resources)
+        all_experiment_metrics[method_name] = collected_metrics
         
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
     
     print(f"\n{'='*50}")
     print("All experiments completed!")
-    print("Results saved in:")
-    for method, result_dir in results:
-        print(f"  {method}: {result_dir}")
+
+
+
+
+    metrics_to_plot = {
+        'task_conflict_intensity': 'Task Conflict Intensity',
+        'directional_conflict': 'Directional Conflict',
+        'gradient_conflict_rate': 'Gradient Conflict Rate',
+        'magnitude_conflict': 'Magnitude Conflict',
+        'total_loss': 'Total Training Loss' # 使用 train_total_loss_avg
+    }
+
+    # 创建一个子目录来存放所有比较图
+    comparison_plots_dir = Path(cfg.LOG_DIR) / cfg.DATASET.DATASET / 'comparisons'
+    comparison_plots_dir.mkdir(parents=True, exist_ok=True)
+
+    for metric_key, metric_title in metrics_to_plot.items():
+        print(f"Generating comparative plot for: {metric_title}...")
+        plt.figure(figsize=(12, 7))
+        
+        # 检查是否有任何方法为此指标提供了有效数据
+        has_valid_data = False
+        for method_name, metrics in all_experiment_metrics.items():
+            # 对于 'total_loss'，实际键是 'train_total_loss_avg'
+            # 对于其他冲突指标，实际键是 'task_conflict_intensity_avg' 等 (根据 FixedGradientConflictDetector)
+            # 在 train_fixed 中，我们已经将它们映射到了 metrics_for_plotting
+            
+            # 确保这里获取的键与 train_fixed 返回的实际平均值键一致
+            # 如果metric_key是'total_loss'，我们实际要取'train_total_loss'
+            # 如果metric_key是'task_conflict_intensity'，我们实际要取'task_conflict_intensity'
+            # ... 等等
+            
+            # 简化：直接使用 metric_key 作为字典中的键
+            values = metrics.get(metric_key) # Attempt to get the averaged metric
+
+            if values is None or not isinstance(values, list) or not any(~np.isnan(v) for v in values):
+                print(f"No valid data for {metric_title} for method {method_name}. Skipping plot for this method on this metric.")
+                continue
+            
+            has_valid_data = True
+            epochs = metrics['epoch_num'] # Epochs should be consistent for all plots
+            valid_indices = ~np.isnan(values)
+            
+            if np.any(valid_indices):
+                plt.plot(np.array(epochs)[valid_indices], np.array(values)[valid_indices], label=method_name, linewidth=1.5)
+            else:
+                print(f"All values are NaN for {metric_title} for method {method_name}. Skipping plot for this method on this metric.")
+
+        if has_valid_data:
+            plt.title(f'{metric_title} Comparison Across Methods', fontsize=16, fontweight='bold')
+            plt.xlabel('Epoch', fontsize=12)
+            plt.ylabel(metric_title, fontsize=12)
+            plt.grid(True, linestyle='--', alpha=0.6)
+            plt.legend(loc='upper right', fontsize=10)
+            plt.tight_layout()
+            
+            plot_filename = comparison_plots_dir / f"MTL_comparison_{metric_key}.png"
+            plt.savefig(plot_filename, dpi=300)
+            print(f"Comparative plot saved to: {plot_filename}")
+            
+            if WANDB_AVAILABLE and wandb.run is not None:
+                try:
+                    # Log the plot to the current WandB run (if it's the last one)
+                    # For comprehensive logging across all methods, this might need a separate artifact upload or a summary run
+                    wandb.log({f"comparative_plots/{metric_key}": wandb.Image(str(plot_filename))})
+                    print(f"Comparative plot also logged to WandB: {metric_key}")
+                except Exception as e:
+                    print(f"Failed to log comparative plot to WandB for {metric_key}: {e}")
+            plt.close() # Close the plot to free memory
+        else:
+            print(f"No valid data to generate comparative plot for {metric_title}.")
+
+  
+
     print(f"{'='*50}")
 
 
