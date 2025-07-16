@@ -439,7 +439,7 @@ def run_experiment(conflict_method, shared_resources):
     for epoch in range(begin_epoch + 1, begin_epoch + learn_epoch + 1):
         epoch_metrics = train_fixed(cfg, train_loader, model_copy, criterion_proto, optimizer_copy, scaler_copy,
               epoch, num_batch, num_warmup, logger, device, wandb_run, 
-              conflict_detector_exp, conflict_solver_exp)
+              conflict_detector_exp, conflict_solver_exp, max_epch=begin_epoch + learn_epoch + 1)
         
         lr_scheduler_copy.step()
         
@@ -515,7 +515,7 @@ def run_experiment(conflict_method, shared_resources):
     return metrics_for_plotting
 
 def train_fixed(cfg, train_loader, model, criterion, optimizer, scaler, epoch, num_batch, num_warmup, logger, 
-          device, wandb_run=None, conflict_detector=None, conflict_solver=None):
+          device, wandb_run=None, conflict_detector=None, conflict_solver=None, max_epch=0):
     """Fixed training function - correct conflict detection and resolution process"""
     batch_time = AverageMeter()
     data_time = AverageMeter()
@@ -533,7 +533,7 @@ def train_fixed(cfg, train_loader, model, criterion, optimizer, scaler, epoch, n
     model.train()
     start = time.time()
 
-    train_pbar = tqdm(train_loader, desc=f'Epoch {epoch}', 
+    train_pbar = tqdm(train_loader, desc=f'Epoch {epoch} / {max_epch}', 
                       bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]')
     
     model_to_inspect = model.module if is_parallel(model) else model
@@ -725,7 +725,7 @@ def main_optimized():
                        model_proto, criterion_proto, None, None, None, conflict_detector_proto)
     
     methods = ['gradnorm', 'pcgrad', 'cagrad', 'mdo', None] # None for original
-    # methods = ['mdo', 'tag', None] # None for original
+    # methods = ['cagrad'] # None for original
     global all_experiment_metrics
     all_experiment_metrics = {} # Reset global metrics for each run of main_optimized
     

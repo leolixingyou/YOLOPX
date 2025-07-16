@@ -108,7 +108,7 @@ _C.TRAIN.GAMMA2 = 0.0
 
 
 _C.TRAIN.VAL_FREQ = 5 # for val and save weight
-_C.TRAIN.BATCH_SIZE_PER_GPU = 8 #default 32
+_C.TRAIN.BATCH_SIZE_PER_GPU = 4 #default 32
 _C.TRAIN.SHUFFLE = True
 
 _C.TRAIN.IOU_THRESHOLD = 0.2
@@ -145,9 +145,9 @@ _C.TEST.NMS_IOU_THRESHOLD  = 0.6
 
 # conflict with other params
 _C.USE_GRADNORM = True  # use grad norm to adjust learning rate
-_C.DATASET.NUMBER_IMAGE = 5000
-_C.TRAIN.BEGIN_EPOCH = 50
-_C.TRAIN.END_EPOCH = 5 # default 200
+_C.DATASET.NUMBER_IMAGE = 100
+_C.TRAIN.BEGIN_EPOCH = 0
+_C.TRAIN.END_EPOCH = 2 # default 200
 _C.MODEL.CONFIG = "/workspace/YOLOPX/lib/config/yolopx.yaml"
 _C.CONFLICTSOLVER = "gradnorm"  # gradnorm, pcgrad, cagrad
 
