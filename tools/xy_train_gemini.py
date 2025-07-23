@@ -3,6 +3,7 @@ import os, sys
 import math
 import time
 import wandb
+import copy
 from pathlib import Path
 import numpy as np
 from tqdm import tqdm
@@ -17,15 +18,24 @@ import torchvision.transforms as transforms
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(BASE_DIR)
 
+
 # Assume these lib directory files exist and are correctly configured
 from lib.utils import DataLoaderX
 import lib.dataset as dataset
 from lib.config import cfg_xy as cfg
 from lib.config import update_config_xy as update_config
-from lib.core.loss import get_loss
-from lib.models import get_net_from_yaml
-from lib.utils import is_parallel
-from lib.utils.utils import get_optimizer
+
+if cfg.MODEL.NAME == "YOLOPX":
+    from lib.core.loss import get_loss
+    from lib.models import get_net_from_yaml as get_net
+    from lib.utils import is_parallel
+    from lib.utils.utils import get_optimizer
+
+if cfg.MODEL.NAME == "YOLOPv1":
+    from lib_yolop.core.loss import get_loss
+    from lib_yolop.models import get_net
+    from lib_yolop.utils import is_parallel
+    from lib_yolop.utils.utils import get_optimizer
 
 # Corrected import paths for custom modules
 from xy_conflict_detect_gemini import FixedGradientConflictDetector
@@ -96,24 +106,23 @@ def load_pretrained_model(model, optimizer, cfg, logger):
     """Loads a pretrained model"""
     begin_epoch = cfg.TRAIN.BEGIN_EPOCH
     
-    if os.path.exists(cfg.MODEL.PRETRAINED):
-        logger.info(f"Loading pretrained model: {cfg.MODEL.PRETRAINED}")
-        checkpoint = torch.load(cfg.MODEL.PRETRAINED)
-        begin_epoch = checkpoint['epoch']
-        
-        state_dict = checkpoint['state_dict']
-        if isinstance(model, torch.nn.DataParallel) and not 'module.' in list(state_dict.keys())[0]:
-            new_state_dict = {'module.' + k: v for k, v in state_dict.items()}
-            model.load_state_dict(new_state_dict)
-        elif not isinstance(model, torch.nn.DataParallel) and 'module.' in list(state_dict.keys())[0]:
-            new_state_dict = {k.replace("module.", ""): v for k, v in state_dict.items()}
-            model.load_state_dict(new_state_dict)
-        else:
-            model.load_state_dict(state_dict)
-
-        optimizer.load_state_dict(checkpoint['optimizer'])
-        logger.info(f"Loaded checkpoint from epoch {checkpoint['epoch']}")
+    logger.info(f"Loading pretrained model: {cfg.MODEL.PRETRAINED}")
+    checkpoint = torch.load(cfg.MODEL.PRETRAINED)
+    begin_epoch = checkpoint['epoch']
     
+    state_dict = checkpoint['state_dict']
+    if isinstance(model, torch.nn.DataParallel) and not 'module.' in list(state_dict.keys())[0]:
+        new_state_dict = {'module.' + k: v for k, v in state_dict.items()}
+        model.load_state_dict(new_state_dict)
+    elif not isinstance(model, torch.nn.DataParallel) and 'module.' in list(state_dict.keys())[0]:
+        new_state_dict = {k.replace("module.", ""): v for k, v in state_dict.items()}
+        model.load_state_dict(new_state_dict)
+    else:
+        model.load_state_dict(state_dict)
+
+    optimizer.load_state_dict(checkpoint['optimizer'])
+    logger.info(f"Loaded checkpoint from epoch {checkpoint['epoch']}")
+
     return begin_epoch
 
 
@@ -392,150 +401,6 @@ def parse_args():
 
 all_experiment_metrics = {}
 
-def run_experiment(conflict_method, shared_resources):
-    cfg, device, train_loader, valid_loader, valid_dataset, model_proto, criterion_proto, _, _, _, conflict_detector_proto = shared_resources
-
-    time_str = time.strftime('%Y%m%d-%H%M%S')
-    run_id = f"run-{time_str}-{hash(time.time()) % 10000:04d}"
-    
-    method_suffix = f"_{conflict_method}" if conflict_method else "_original"
-    log_dir_path = Path(cfg.LOG_DIR) / cfg.DATASET.DATASET / f'{run_id}{method_suffix}'
-    log_dir_path.mkdir(parents=True, exist_ok=True)
-    
-    # Initialize ConsoleLogger
-    console_logger = ConsoleLogger(str(log_dir_path), f'{run_id}{method_suffix}')
-    logger = console_logger.get_logger()
-
-    # Initialize WandBLogger
-    wandb_logger = WandBLogger(cfg, f"{run_id}{method_suffix}", project_name=f"multitask-training-{cfg.DATASET.DATASET}_refactor")
-    wandb_logger.set_logger(logger) # Pass console logger to WandBLogger for its internal logging
-
-    # Initialize LocalFileLogger
-    local_file_logger = LocalFileLogger(str(log_dir_path))
-    local_file_logger.set_logger(logger) # Pass console logger to LocalFileLogger
-
-    logger.info(f"Wandb initialized: multitask-training-{cfg.DATASET.DATASET}_refactor/{run_id}{method_suffix}")
-
-    import copy
-    model_copy = copy.deepcopy(model_proto).to(device)
-    
-    if isinstance(model_copy, torch.nn.DataParallel):
-        model_copy = model_copy.module 
-    
-    model_copy = model_copy.to(device) 
-    
-    if str(device).startswith('cuda') and torch.cuda.device_count() > 0:
-        torch.cuda.set_device(0) 
-        model_copy = model_copy.cuda(0)
-
-    optimizer_copy = get_optimizer(cfg, model_copy)
-    lr_scheduler_copy = optim.lr_scheduler.LambdaLR(
-        optimizer_copy, 
-        lr_lambda=lambda x: ((1 + math.cos(x * math.pi / cfg.TRAIN.END_EPOCH)) / 2) * (1 - cfg.TRAIN.LRF) + cfg.TRAIN.LRF
-    )
-    scaler_copy = amp.GradScaler(enabled=device.type != 'cpu')
-    conflict_detector_exp = FixedGradientConflictDetector(model_copy)
-
-    solver_map = {
-        'gradnorm': FixedGradientConflictSolver(method='gradnorm', num_tasks=3, device=device, alpha=1.5, update_freq=20),
-        'pcgrad': FixedGradientConflictSolver(method='pcgrad', num_tasks=3, device=device),
-        'cagrad': FixedGradientConflictSolver(method='cagrad', num_tasks=3, device=device, c=0.5),
-        'mdo': MDO_Optimizer(model_copy, num_tasks=3, device=device, update_freq=20), 
-        'tag': FixedGradientConflictSolver(method='tag', num_tasks=3, device=device, update_freq=20) 
-    }
-    conflict_solver_exp = solver_map.get(conflict_method)
-    
-    begin_epoch = load_pretrained_model(model_copy, optimizer_copy, cfg, logger)
-    
-    num_batch = len(train_loader)
-    num_warmup = max(round(cfg.TRAIN.WARMUP_EPOCHS * num_batch), 1000)
-    
-    learn_epoch = cfg.TRAIN.END_EPOCH - cfg.TRAIN.BEGIN_EPOCH
-    
-    logger.info(f"Starting training with {conflict_method or 'original'} method...")
-    logger.info(f"Training epochs: {begin_epoch + 1} to {begin_epoch + learn_epoch}")
-    
-    metrics_for_plotting = {
-        'train_total_loss_avg': [],
-        'task_conflict_intensity_avg': [],
-        'epoch_num': []
-    }
-
-    for epoch in range(begin_epoch + 1, begin_epoch + learn_epoch + 1):
-        epoch_metrics = train_fixed(cfg, train_loader, model_copy, criterion_proto, optimizer_copy, scaler_copy,
-             epoch, num_batch, num_warmup, logger, device, wandb_logger, 
-             conflict_detector_exp, conflict_solver_exp, max_epch=begin_epoch + learn_epoch + 1)
-        
-        lr_scheduler_copy.step()
-        
-        metrics_for_plotting['train_total_loss_avg'].append(epoch_metrics.get('train_total_loss_avg', float('nan')))
-        metrics_for_plotting['task_conflict_intensity_avg'].append(epoch_metrics.get('task_conflict_intensity_avg', float('nan')))
-        metrics_for_plotting['epoch_num'].append(epoch)
-
-        wandb_logger.log_epoch_metrics(epoch_metrics, epoch)
-        logger.info(f"Epoch {epoch} Wandb log: {epoch_metrics}")
-
-        if epoch >= cfg.TRAIN.END_EPOCH - 1:
-            da_results, ll_results, detect_results, total_loss, _, times = validate(
-                epoch, cfg, valid_loader, valid_dataset, model_copy, criterion_proto,
-                str(log_dir_path), console_logger, wandb_logger
-            )
-            
-            val_log_dict = {
-                'val_loss': total_loss,
-                'val_da_acc': da_results[0],
-                'val_da_iou': da_results[1],
-                'val_da_miou': da_results[2],
-                'val_ll_acc': ll_results[0],
-                'val_ll_iou': ll_results[1],
-                'val_ll_miou': ll_results[2],
-                'val_det_precision': detect_results[0],
-                'val_det_recall': detect_results[1],
-                'val_det_map50': detect_results[2],
-                'val_det_map': detect_results[3],
-                'inference_time': times[0],
-                'nms_time': times[1],
-                'epoch': epoch
-            }
-            wandb_logger.log_epoch_metrics(val_log_dict, epoch) # Log validation metrics
-
-    try:
-        logger.info("Generating comprehensive analysis plots...")
-        final_plots = conflict_detector_exp.generate_comprehensive_plots()
-        
-        if final_plots:
-            plots_dir = log_dir_path / 'plots'
-            plots_dir.mkdir(exist_ok=True)
-            
-            for plot_name, fig in final_plots.items():
-                plot_file = plots_dir / f"{plot_name}.png"
-                fig.savefig(plot_file, dpi=150, bbox_inches='tight')
-                logger.info(f"Plot saved: {plot_file}")
-                
-                wandb_logger.log_final_plots(plot_name, fig)
-                
-                plt.close(fig)
-            
-            wandb_logger.log_training_summary(conflict_detector_exp.get_training_summary())
-            
-            logger.info("Comprehensive analysis completed and saved")
-        else:
-            logger.warning("No plots generated from conflict detector.")
-            
-    except Exception as e:
-        logger.warning(f"Failed to generate final plots: {e}")
-    
-    final_model_file = log_dir_path / 'final_state.pth'
-    model_state = model_copy.module.state_dict() if is_parallel(model_copy) else model_copy.state_dict()
-    torch.save(model_state, final_model_file)
-    logger.info(f"Final model saved to: {final_model_file}")
-    
-    wandb_logger.finish_run()
-    
-    logger.info(f"Training completed for {conflict_method or 'original'}!")
-    
-    return metrics_for_plotting
-
 def train_fixed(cfg, train_loader, model, criterion, optimizer, scaler, epoch, num_batch, num_warmup, console_logger_instance, 
              device, wandb_logger_instance=None, conflict_detector=None, conflict_solver=None, max_epch=0):
     
@@ -725,7 +590,7 @@ def main_optimized():
     print("Data loaded successfully")
     
     print("Building model prototype...")
-    model_proto = get_net_from_yaml(cfg.MODEL.CONFIG).to(device)
+    model_proto = get_net(cfg.MODEL.CONFIG).to(device)
     model_proto.gr = 1.0 
     model_proto.nc = 1 
 
@@ -742,7 +607,7 @@ def main_optimized():
     shared_resources = (cfg, device, train_loader, valid_loader, valid_dataset, 
                         model_proto, criterion_proto, None, None, None, conflict_detector_proto)
     
-    methods = ['gradnorm', 'pcgrad', 'cagrad', 'mdo', 'tag', None]
+    methods = [None, 'gradnorm', 'pcgrad', 'cagrad', 'mdo', 'tag']
     global all_experiment_metrics
     all_experiment_metrics = {}
     
@@ -836,7 +701,6 @@ def run_experiment_isolated(conflict_method, shared_resources, console_logger_in
     
     logger = console_logger_instance.get_logger() # Get the specific logger for this run
 
-    import copy
     model_copy = copy.deepcopy(model_proto).to(device)
     
     if isinstance(model_copy, torch.nn.DataParallel):
@@ -865,7 +729,9 @@ def run_experiment_isolated(conflict_method, shared_resources, console_logger_in
     }
     conflict_solver_exp = solver_map.get(conflict_method)
     
-    begin_epoch = load_pretrained_model(model_copy, optimizer_copy, cfg, logger)
+    begin_epoch = 0
+    if os.path.exists(cfg.MODEL.PRETRAINED):
+        begin_epoch = load_pretrained_model(model_copy, optimizer_copy, cfg, logger)
     
     num_batch = len(train_loader)
     num_warmup = max(round(cfg.TRAIN.WARMUP_EPOCHS * num_batch), 1000)

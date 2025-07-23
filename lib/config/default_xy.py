@@ -26,12 +26,17 @@ _C.CUDNN.ENABLED = True
 
 # common params for NETWORK
 _C.MODEL = CN(new_allowed=True)
-_C.MODEL.NAME = '' 
+_C.MODEL.NAME = "YOLOPv1" # YOLOPv1, YOLOPX
+# _C.MODEL.NAME = "YOLOPX" # YOLOPv1, YOLOPX
 _C.MODEL.STRU_WITHSHARE = False     #add share_block to segbranch
 _C.MODEL.HEADS_NAME = ['']
 
 # MODIFY
-_C.MODEL.PRETRAINED = '/workspace/YOLOPX/tools/epoch-195.pth' # default ""
+if _C.MODEL.NAME == "YOLOPX":
+    _C.MODEL.PRETRAINED = '/workspace/YOLOPX/weights/epoch-195_yolopx.pth' # default ""
+if _C.MODEL.NAME == "YOLOPv1":
+    # _C.MODEL.PRETRAINED = '/workspace/YOLOPX/weights/End-to-end_yolopv1.pth' # default ""
+    _C.MODEL.PRETRAINED = '' # default ""
 
 
 #
