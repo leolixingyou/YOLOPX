@@ -1,0 +1,47 @@
+# YOLOP-TAG网络架构配置文件 (已修正)
+# 解决了PaFPNELAN多输出与TaskAttention单输入不匹配的问题
+
+# 预测头索引配置
+prediction_heads:
+  det_out_idx: 5      # 检测输出索引
+  da_seg_out_idx: 11  # 驾驶区域分割输出索引  
+  ll_seg_out_idx: 17  # 车道线分割输出索引
+
+# 网络架构定义
+# 格式: [输入来源, 模块类型, 参数列表]
+layers:
+  # 1. Backbone - ELANNet骨干网络
+  - [-1, "ELANNet", [true]]  # 0
+
+  # 2. Neck - PaFPNELAN 特征金字塔
+  - [0, "PaFPNELAN", []]    # 1 -> 输出一个特征图列表
+
+  # 3. Shared Feature Selection - 从PaFPNELAN的输出中选择一个共享特征图
+  - [1, "Select", [4]] # 2 -> 选择索引为4的特征图 (c13) 作为共享输入
+
+  # 4. TAG - Task-adaptive Attention Generator
+  - [2, "TaskAttention", [128, 3]] # 3 -> 输入c13 (128通道), 为3个任务生成专属特征
+
+  # --- Branch 1: Detection Head ---
+  - [3, "Select", [0]] # 4. 从TAG的输出中选择检测任务的专属特征
+  - [-1, "YOLOXHead", [1]]   # 5. 检测头
+
+  # --- Branch 2: Driving Area Segmentation Head ---
+  - [3, "Select", [1]] # 6. 从TAG的输出中选择驾驶区域分割的专属特征
+  - [-1, "Conv", [128, 64, 3, 1]]           # 7
+  - [-1, "Upsample", [null, 2, "bilinear"]] # 8
+  - [-1, "Conv", [64, 32, 3, 1]]           # 9
+  - [-1, "Upsample", [null, 2, "bilinear"]] # 10
+  - [-1, "Conv", [32, 2, 3, 1]]              # 11. 驾驶区域分割头
+
+  # --- Branch 3: Lane Line Segmentation Head ---
+  - [3, "Select", [2]] # 12. 从TAG的输出中选择车道线分割的专属特征
+  - [-1, "Conv", [128, 64, 3, 1]]           # 13
+  - [-1, "Upsample", [null, 2, "bilinear"]] # 14
+  - [-1, "Conv", [64, 32, 3, 1]]           # 15
+  - [-1, "Upsample", [null, 2, "bilinear"]] # 16
+  - [-1, "Conv", [32, 2, 3, 1]]              # 17. 车道线分割头
+
+# 模型配置参数
+model_config:
+  nc: 1  # 类别数量

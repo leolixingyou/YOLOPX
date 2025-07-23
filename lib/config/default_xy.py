@@ -27,7 +27,7 @@ _C.CUDNN.ENABLED = True
 # common params for NETWORK
 _C.MODEL = CN(new_allowed=True)
 _C.MODEL.NAME = "YOLOPv1" # YOLOPv1, YOLOPX
-# _C.MODEL.NAME = "YOLOPX" # YOLOPv1, YOLOPX
+_C.MODEL.NAME = "YOLOPX" # YOLOPv1, YOLOPX
 _C.MODEL.STRU_WITHSHARE = False     #add share_block to segbranch
 _C.MODEL.HEADS_NAME = ['']
 
@@ -154,7 +154,6 @@ _C.DATASET.NUMBER_IMAGE = 100
 _C.TRAIN.BEGIN_EPOCH = 0
 _C.TRAIN.END_EPOCH = 2 # default 200
 _C.MODEL.CONFIG = "/workspace/YOLOPX/lib/config/yolopx.yaml"
-_C.CONFLICTSOLVER = "gradnorm"  # gradnorm, pcgrad, cagrad
 
 def update_config_xy(cfg, args):
     cfg.defrost()

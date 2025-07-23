@@ -574,6 +574,7 @@ def train_fixed(cfg, train_loader, model, criterion, optimizer, scaler, epoch, n
 
 def main_optimized():
     """Optimized main function"""
+    methods = [None, 'gradnorm', 'pcgrad', 'cagrad', 'mdo', 'tag']
     args = parse_args()
     update_config(cfg, args)
     
@@ -590,7 +591,12 @@ def main_optimized():
     print("Data loaded successfully")
     
     print("Building model prototype...")
-    model_proto = get_net(cfg.MODEL.CONFIG).to(device)
+    if methods == 'tag':
+        model_name = '/workspace/YOLOPX/lib/config/yolopx-tag.yaml'
+    else:
+        model_name = cfg.MODEL.CONFIG 
+
+    model_proto = get_net(model_name).to(device)
     model_proto.gr = 1.0 
     model_proto.nc = 1 
 
@@ -607,7 +613,6 @@ def main_optimized():
     shared_resources = (cfg, device, train_loader, valid_loader, valid_dataset, 
                         model_proto, criterion_proto, None, None, None, conflict_detector_proto)
     
-    methods = [None, 'gradnorm', 'pcgrad', 'cagrad', 'mdo', 'tag']
     global all_experiment_metrics
     all_experiment_metrics = {}
     
@@ -634,7 +639,7 @@ def main_optimized():
         local_file_logger_instance.set_logger(current_experiment_logger)
 
         collected_metrics = run_experiment_isolated(method, shared_resources, 
-                                                console_logger_instance, wandb_logger_instance, local_file_logger_instance)
+                                                console_logger_instance, wandb_logger_instance, local_file_logger_instance, model_proto)
         
         all_experiment_metrics[method_name] = collected_metrics
         
@@ -696,21 +701,11 @@ def main_optimized():
     print(f"{'='*50}")
 
 # Helper function to encapsulate the run logic, taking loggers as arguments
-def run_experiment_isolated(conflict_method, shared_resources, console_logger_instance, wandb_logger_instance, local_file_logger_instance):
+def run_experiment_isolated(conflict_method, shared_resources, console_logger_instance, wandb_logger_instance, local_file_logger_instance, model_copy):
     cfg, device, train_loader, valid_loader, valid_dataset, model_proto, criterion_proto, _, _, _, conflict_detector_proto = shared_resources
     
     logger = console_logger_instance.get_logger() # Get the specific logger for this run
 
-    model_copy = copy.deepcopy(model_proto).to(device)
-    
-    if isinstance(model_copy, torch.nn.DataParallel):
-        model_copy = model_copy.module 
-    
-    model_copy = model_copy.to(device) 
-    
-    if str(device).startswith('cuda') and torch.cuda.device_count() > 0:
-        torch.cuda.set_device(0) 
-        model_copy = model_copy.cuda(0)
 
     optimizer_copy = get_optimizer(cfg, model_copy)
     lr_scheduler_copy = optim.lr_scheduler.LambdaLR(
