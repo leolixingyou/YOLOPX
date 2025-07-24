@@ -38,7 +38,7 @@ def main():
     train_loader, valid_loader, valid_dataset = create_data_loaders(cfg)
 
     methods = [None, 'gradnorm', 'pcgrad', 'cagrad', 'mdo', 'tag']
-    methods = ['tag']
+    # methods = ['tag']
     all_experiment_metrics = {}
 
     for method in methods:
@@ -104,9 +104,9 @@ def setup_loggers(cfg, method_name):
     return {'console': console_logger, 'wandb': wandb_logger, 'local': local_file_logger}
 
 def setup_experiment(cfg, device, method):
-    # Use original dynamic model selection logic
+    # Use optimized model selection logic
     if method == 'tag':
-        model_config_path = Path(__file__).parent.parent / 'lib' / 'config' / 'yolopx-tag.yaml'
+        model_config_path = Path(__file__).parent.parent / 'lib' / 'config' / 'yolopx-tag-optimized.yaml'
     else:
         model_config_path = cfg.MODEL.CONFIG  # Use config-specified model path
     

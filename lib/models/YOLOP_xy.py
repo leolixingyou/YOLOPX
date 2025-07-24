@@ -10,6 +10,7 @@ from lib.utils import initialize_weights
 from lib.models.common import Conv, seg_head, PSA_p, MergeBlock, Concat, FPN_C2, FPN_C3, FPN_C4, ELANNet, ELANBlock_Head, PaFPNELAN, IDetect, RepConv
 from lib.models.YOLOX_Head_scales_noshare import YOLOXHead
 from lib.models.tag_module import TaskAttention, MultiScaleTaskAttention
+from lib.models.improved_tag_module import ImprovedTaskAttention, AdaptiveFeatureFusion, ImprovedSelect
 
 class Select(nn.Module):
     def __init__(self, index):
@@ -38,6 +39,10 @@ class YAMLModelBuilder:
             'Conv': Conv, 'Upsample': Upsample, 'ELANBlock_Head': ELANBlock_Head,
             'seg_head': seg_head, 'MergeBlock': MergeBlock, 'PSA_p': PSA_p,
             'TaskAttention': TaskAttention, 'MultiScaleTaskAttention': MultiScaleTaskAttention, 'Select': Select,
+            # Improved TAG modules
+            'ImprovedTaskAttention': ImprovedTaskAttention, 
+            'AdaptiveFeatureFusion': AdaptiveFeatureFusion,
+            'ImprovedSelect': ImprovedSelect,
         }
 
     def parse_config(self):
@@ -89,14 +94,36 @@ class MCnetFromYAML(nn.Module):
         outputs = {}
         
         for i, block in enumerate(self.model):
-            if block.from_ != -1:
-                if isinstance(block.from_, int):
-                    x = cache[block.from_]
-                else:
-                    # Handle the special case of -1, which refers to the previous layer's output
-                    x = [x if j == -1 else cache[j] for j in block.from_]
+            input_for_block = None
             
-            x = block(x)
+            if block.from_ == -1:
+                input_for_block = x
+            elif isinstance(block.from_, int):
+                input_for_block = cache[block.from_]
+            elif isinstance(block.from_, list):
+                # Collect inputs from multiple sources
+                collected_inputs = []
+                for j in block.from_:
+                    if j == -1:
+                        collected_inputs.append(x) # Previous block's output
+                    else:
+                        collected_inputs.append(cache[j])
+                
+                # Determine how to pass collected_inputs to the block
+                if isinstance(block, AdaptiveFeatureFusion):
+                    # AdaptiveFeatureFusion expects unpacked arguments (feature1, feature2)
+                    x = block(*collected_inputs)
+                    cache[i] = x
+                    continue # Skip the general block(input_for_block) call below
+                elif isinstance(block, ImprovedSelect):
+                    # ImprovedSelect expects a single list as input (task_features)
+                    input_for_block = collected_inputs
+                else:
+                    # Default for other multi-input modules: pass as a list
+                    input_for_block = collected_inputs
+            
+            # Execute the block with the prepared input_for_block
+            x = block(input_for_block)
             cache[i] = x
 
             if i == self.det_out_idx:

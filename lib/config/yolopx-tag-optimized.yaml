@@ -1,0 +1,83 @@
+# YOLOP-TAG优化网络架构配置文件 
+# 专门优化以达到GradNorm性能水平
+
+# 预测头索引配置 (保持与原始YOLOPX兼容)
+prediction_heads:
+  det_out_idx: 2      # 检测输出索引（与原始一致）
+  da_seg_out_idx: 18  # 驾驶区域分割输出索引
+  ll_seg_out_idx: 34  # 车道线分割输出索引
+
+# 网络架构定义 - 改进版TAG实现
+# 格式: [输入来源, 模块类型, 参数列表]
+layers:
+  # Backbone - ELANNet骨干网络
+  - [-1, "ELANNet", [true]]  # 0
+
+  # PaFPNELAN - 特征金字塔网络
+  - [-1, "PaFPNELAN", []]    # 1
+
+  # Detection Head - YOLOX检测头（保持原始结构以确保权重兼容）
+  - [-1, "YOLOXHead", [1]]   # 2
+
+  # 渐进式上采样分支
+  - [1, "FPN_C3", []]        # 3
+  - [1, "FPN_C4", []]        # 4
+
+  # 改进的TAG注意力机制 (驾驶区域分割分支)
+  - [4, "ImprovedTaskAttention", [512, 3]]       # 5. 改进的TAG注意力机制
+  - [-1, "ImprovedSelect", [1]]                   # 6. 改进的任务选择（DA任务）
+  - [-1, "Conv", [512, 256, 3, 1]]               # 7
+  - [-1, "Upsample", [null, 2, "bilinear"]]     # 8
+  - [-1, "ELANBlock_Head", [256, 128]]          # 9
+  - [-1, "Conv", [128, 64, 3, 1]]               # 10
+  - [-1, "Upsample", [null, 2, "bilinear"]]     # 11
+  - [-1, "Conv", [64, 32, 3, 1]]                # 12
+  - [-1, "Upsample", [null, 2, "bilinear"]]     # 13
+  - [-1, "Conv", [32, 16, 3, 1]]                # 14
+  - [-1, "ELANBlock_Head", [16, 8]]             # 15
+  - [-1, "Upsample", [null, 2, "bilinear"]]     # 16
+  - [-1, "Conv", [8, 2, 3, 1]]                  # 17
+  - [-1, "seg_head", ["sigmoid"]]               # 18 - 驾驶区域分割头
+
+  # 车道线分割分支 - 使用改进的特征融合
+  - [1, "FPN_C2", []]                           # 19
+  - [-1, "Conv", [256, 128, 3, 1]]              # 20
+  
+  # 改进的特征融合：TAG特征 + C2特征
+  - [5, "ImprovedSelect", [2]]                   # 21. 选择LL任务特征（改进版）
+  - [3, "Conv", [256, 128, 3, 1]]               # 22
+  - [-1, "Upsample", [null, 2, "bilinear"]]     # 23
+  - [[-1, 20], "AdaptiveFeatureFusion", ["attention"]]  # 24 - 自适应特征融合
+  
+  # 车道线分割头后续层（优化版）
+  - [-1, "ELANBlock_Head", [128, 64]]           # 25
+  - [-1, "PSA_p", [64, 64]]                     # 26
+  - [-1, "Conv", [64, 32, 3, 1]]                # 27
+  - [-1, "Upsample", [null, 2, "bilinear"]]     # 28
+  - [-1, "Conv", [32, 16, 3, 1]]                # 29
+  - [-1, "ELANBlock_Head", [16, 8]]             # 30
+  - [-1, "PSA_p", [8, 8]]                       # 31
+  - [-1, "Upsample", [null, 2, "bilinear"]]     # 32
+  - [-1, "Conv", [8, 2, 3, 1]]                  # 33
+  - [-1, "seg_head", ["sigmoid"]]               # 34 - 车道线分割头
+
+# 模型配置参数
+model_config:
+  nc: 1  # 类别数量
+  input_size: [3, 256, 256]  # 输入尺寸 [通道数, 高度, 宽度]
+  use_improved_tag: true     # 启用改进的TAG模块
+  dynamic_loss_weighting: true  # 启用动态损失权重
+  
+# TAG特定配置
+tag_config:
+  attention_reduction: 16      # 注意力模块的通道减少比例
+  fusion_type: "attention"     # 特征融合类型: weighted_add, attention, se_fusion
+  dynamic_weighting_alpha: 1.5 # 动态权重调整强度
+  loss_momentum: 0.9          # 损失历史动量
+  
+# 优化的损失权重配置（接近GradNorm水平）
+loss_weights:
+  detection: 0.8     # 增加检测任务权重
+  da_seg: 0.25       # 适中的驾驶区域权重  
+  ll_seg: 0.35       # 降低车道线权重以避免主导
+  ll_iou: 0.35       # 平衡的IoU权重
