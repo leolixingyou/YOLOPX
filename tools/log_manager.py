@@ -15,11 +15,7 @@ except ImportError:
     WANDB_AVAILABLE = False
     print("Warning: wandb is not installed. Metrics will not be logged to wandb.")
 
-# Assuming these are available from lib.core.general
-# from lib.core.general import xywh2xyxy, scale_coords, coco80_to_coco91_class
-# For this example, I'll put minimal versions or assume their presence if directly used.
-# If these functions are complex, ensure lib.core.general is accessible or copy them.
-# For simplicity, I'll copy the denormalize/overlay here as they are tightly coupled to visualization.
+from lib.utils.utils import xywh2xyxy, scale_coords, clip_coords, _coco80_to_coco91_class
 
 def _denormalize_img_tensor(img_tensor):
     """Denormalizes a single image tensor and converts to HWC numpy array (0-255)."""
@@ -51,6 +47,16 @@ def _overlay_mask_on_image(image_np, mask_np, color=(0, 255, 0), alpha=0.5):
     
     cv2.addWeighted(colored_mask, alpha, overlay, 1 - alpha, 0, overlay)
     return overlay
+
+def _draw_box(img, xyxy, label, color):
+    x1, y1, x2, y2 = [int(c) for c in xyxy]
+    cv2.rectangle(img, (x1, y1), (x2, y2), color, 2)
+    # Add label text
+    tf = max(1, round(0.002 * (img.shape[0] + img.shape[1]) / 2))
+    t_size = cv2.getTextSize(label, 0, fontScale=tf / 3, thickness=tf)[0]
+    c2 = x1 + t_size[0], y1 - t_size[1] - 3
+    cv2.rectangle(img, (x1, y1), c2, color, -1, cv2.LINE_AA)  # filled
+    cv2.putText(img, label, (x1, y1 - 2), 0, tf / 3, [225, 255, 255], thickness=tf, lineType=cv2.LINE_AA)
 
 # Placeholder for coco80_to_coco91_class if not directly imported or accessible
 # In a real scenario, you'd import this from lib.core.general or define it if standalone.
@@ -107,29 +113,44 @@ class WandBLogger:
             epoch_metrics['epoch'] = epoch
             self.wandb_run.log(epoch_metrics)
 
-    def cache_valid_detection_image(self, img_tensor, pred_data, names, epoch, path_name):
+    def cache_valid_detection_image(self, img_tensor, pred_data, gt_data, names, epoch, path_name):
         if self.wandb_run and len(self.log_images_cache['valid_img_detection']) < self.log_imgs_limit:
-            box_data = [{"position": {"minX": xyxy[0], "minY": xyxy[1], "maxX": xyxy[2], "maxY": xyxy[3]},
-                         "class_id": int(cls),
-                         "box_caption": "%s %.3f" % (names.get(int(cls), 'unknown'), conf),
-                         "scores": {"class_score": conf},
-                         "domain": "pixel"} for *xyxy, conf, cls in pred_data]
-            boxes = {"predictions": {"box_data": box_data, "class_labels": names}}
-            self.log_images_cache['valid_img_detection'].append(wandb.Image(img_tensor, boxes=boxes, caption=f"Epoch {epoch} - Det - {path_name}"))
+            # Convert tensor to a writable numpy array
+            img_np = _denormalize_img_tensor(img_tensor)
+            img_vis = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR) # OpenCV uses BGR
 
-    def cache_valid_seg_image(self, img_tensor, pred_mask_np, task_type, epoch, path_name, padding_info=None):
+            # Draw prediction boxes (Green)
+            for *xyxy, conf, cls in pred_data:
+                label = f'{names.get(int(cls), "unknown")} {conf:.2f}'
+                _draw_box(img_vis, xyxy, label, color=(0, 255, 0))
+
+            # Draw ground truth boxes (Blue)
+            for *xyxy, cls in gt_data:
+                label = f'{names.get(int(cls), "unknown")} (GT)'
+                _draw_box(img_vis, xyxy, label, color=(255, 0, 0))
+
+            img_vis_rgb = cv2.cvtColor(img_vis, cv2.COLOR_BGR2RGB)
+            self.log_images_cache['valid_img_detection'].append(wandb.Image(img_vis_rgb, caption=f"Epoch {epoch} - Det - {path_name}"))
+
+    def cache_valid_seg_image(self, img_tensor, pred_mask_np, gt_mask_np, task_type, epoch, path_name, padding_info=None):
         if self.wandb_run and len(self.log_images_cache[f'valid_img_{task_type}']) < self.log_imgs_limit:
             original_img_np = _denormalize_img_tensor(img_tensor)
 
-            # Apply padding crop if info is provided
+            # Crop padding if info is provided
             if padding_info:
                 (original_h, original_w), (pad_h, pad_w) = padding_info
-                cropped_img_np = original_img_np[pad_h:original_h-pad_h, pad_w:original_w-pad_w, :]
+                if original_h > 2 * pad_h and original_w > 2 * pad_w:
+                    cropped_img_np = original_img_np[pad_h:original_h-pad_h, pad_w:original_w-pad_w, :]
+                else:
+                    cropped_img_np = original_img_np # Avoid cropping if padding is larger than image
             else:
                 cropped_img_np = original_img_np
 
-            color = (0, 255, 0) if task_type == 'da_seg' else (255, 0, 0) # Green for DA, Red for LL
-            vis_img = _overlay_mask_on_image(cropped_img_np, pred_mask_np, color=color)
+            # Overlay Prediction Mask (Green)
+            vis_img = _overlay_mask_on_image(cropped_img_np, pred_mask_np, color=(0, 255, 0), alpha=0.5)
+            # Overlay Ground Truth Mask (Blue)
+            vis_img = _overlay_mask_on_image(vis_img, gt_mask_np, color=(255, 0, 0), alpha=0.5)
+
             self.log_images_cache[f'valid_img_{task_type}'].append(wandb.Image(vis_img, caption=f"Epoch {epoch} - {task_type.upper().replace('_',' ')} - {path_name}"))
 
     def log_validation_images(self, epoch):
@@ -236,35 +257,3 @@ class ConsoleLogger:
             console_handler.setFormatter(logging.Formatter('%(asctime)s - %(message)s'))
             self.logger.addHandler(console_handler)
 
-# Helper function from lib.core.general
-def xywh2xyxy(x):
-    # Convert nx4 boxes from [x, y, w, h] to [x1, y1, x2, y2] where xy1=top-left, xy2=bottom-right
-    y = x.clone() if isinstance(x, torch.Tensor) else np.copy(x)
-    y[:, 0] = x[:, 0] - x[:, 2] / 2  # top left x
-    y[:, 1] = x[:, 1] - x[:, 3] / 2  # top left y
-    y[:, 2] = x[:, 0] + x[:, 2] / 2  # bottom right x
-    y[:, 3] = x[:, 1] + x[:, 3] / 2  # bottom right y
-    return y
-
-# Helper function from lib.core.general
-def scale_coords(img1_shape, coords, img0_shape, ratio_pad=None):
-    # Rescale coords (xyxy) from img1_shape to img0_shape
-    if ratio_pad is None:  # calculate from img0_shape
-        gain = min(img1_shape[0] / img0_shape[0], img1_shape[1] / img0_shape[1])  # gain  = old / new
-        pad = (img1_shape[1] - img0_shape[1] * gain) / 2, (img1_shape[0] - img0_shape[0] * gain) / 2  # wh padding
-    else:
-        gain = ratio_pad[0][0]
-        pad = ratio_pad[1]
-
-    coords[:, [0, 2]] -= pad[0]  # x padding
-    coords[:, [1, 3]] -= pad[1]  # y padding
-    coords[:, :4] /= gain
-    clip_coords(coords, img0_shape)
-    return coords
-
-def clip_coords(boxes, img_shape):
-    # Clip bounding boxes (xyxy) to image shape (height, width)
-    boxes[:, 0].clamp_(0, img_shape[1])  # x1
-    boxes[:, 1].clamp_(0, img_shape[0])  # y1
-    boxes[:, 2].clamp_(0, img_shape[1])  # x2
-    boxes[:, 3].clamp_(0, img_shape[0])  # y2

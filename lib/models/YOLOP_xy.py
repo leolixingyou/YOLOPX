@@ -9,7 +9,7 @@ sys.path.append(os.getcwd())
 from lib.utils import initialize_weights
 from lib.models.common import Conv, seg_head, PSA_p, MergeBlock, Concat, FPN_C2, FPN_C3, FPN_C4, ELANNet, ELANBlock_Head, PaFPNELAN, IDetect, RepConv
 from lib.models.YOLOX_Head_scales_noshare import YOLOXHead
-from lib.models.tag_module import TaskAttention
+from lib.models.tag_module import TaskAttention, MultiScaleTaskAttention
 
 class Select(nn.Module):
     def __init__(self, index):
@@ -18,6 +18,12 @@ class Select(nn.Module):
 
     def forward(self, x):
         if isinstance(x, (list, tuple)):
+            if self.index >= len(x):
+                print(f"Select error: trying to access index {self.index} from list of length {len(x)}")
+                print(f"List contents types: {[type(item).__name__ for item in x]}")
+                if hasattr(x[0], 'shape'):
+                    print(f"List contents shapes: {[item.shape if hasattr(item, 'shape') else 'no shape' for item in x]}")
+                raise IndexError(f"list index out of range: {self.index} >= {len(x)}")
             return x[self.index]
         return x
 
@@ -31,7 +37,7 @@ class YAMLModelBuilder:
             'FPN_C2': FPN_C2, 'FPN_C3': FPN_C3, 'FPN_C4': FPN_C4,
             'Conv': Conv, 'Upsample': Upsample, 'ELANBlock_Head': ELANBlock_Head,
             'seg_head': seg_head, 'MergeBlock': MergeBlock, 'PSA_p': PSA_p,
-            'TaskAttention': TaskAttention, 'Select': Select,
+            'TaskAttention': TaskAttention, 'MultiScaleTaskAttention': MultiScaleTaskAttention, 'Select': Select,
         }
 
     def parse_config(self):
@@ -69,7 +75,7 @@ class MCnetFromYAML(nn.Module):
         for i, (from_, block_name, args) in enumerate(block_cfg[1:]):
             block = builder.module_map[block_name]
             block_ = block(*args) if args else block()
-            block_.index, block_.from_ = i, from_
+            block_.from_ = from_
             layers.append(block_)
             save.extend(x % i for x in ([from_] if isinstance(from_, int) else from_) if x != -1)
         
