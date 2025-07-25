@@ -25,6 +25,7 @@ from mdo_optimizer import MDO_Optimizer
 from log_manager import WandBLogger, LocalFileLogger, ConsoleLogger
 from validator import Validator
 from trainer import Trainer
+import logging
 
 def main():
     args = parse_args()
@@ -36,22 +37,36 @@ def main():
     cudnn.enabled = cfg.CUDNN.ENABLED
 
     train_loader, valid_loader, valid_dataset = create_data_loaders(cfg)
-
+    
+    # Temporarily run only one method for testing
+    # methods = [None]  # Only original method
     methods = [None, 'gradnorm', 'pcgrad', 'cagrad', 'mdo', 'tag']
-    # methods = ['tag']
+    
+    # Create shared run ID and program logger
+    shared_run_id = f"run-{time.strftime('%Y%m%d-%H%M%S')}-{hash(time.time()) % 10000:04d}"
+    base_log_dir = Path(cfg.LOG_DIR) / cfg.DATASET.DATASET / shared_run_id
+    base_log_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Setup comprehensive logging for complete execution tracking
+    program_logger = setup_comprehensive_logging(base_log_dir, shared_run_id) 
+    program_logger.info(f"[PROGRAM] - Starting YOLOPX multi-task training with {len(methods)} methods")
+    program_logger.info(f"[PROGRAM] - Device: {device}, CUDA available: {torch.cuda.is_available()}")
+    program_logger.info(f"[PROGRAM] - Training samples: {len(train_loader.dataset)}, Validation samples: {len(valid_dataset)}")
+
     all_experiment_metrics = {}
 
     for method in methods:
         method_name = method or 'original'
         print(f"\n{'='*50}\nStarting experiment with method: {method_name}\n{'='*50}")
+        program_logger.info(f"[PROGRAM] - Starting experiment with method: {method_name}")
 
-        loggers = setup_loggers(cfg, method_name) 
+        loggers = setup_loggers(cfg, method_name, shared_run_id) 
         model, criterion, optimizer, scaler, solver = setup_experiment(cfg, device, method)
 
         begin_epoch = load_pretrained_model(model, optimizer, cfg, loggers['console'].get_logger(), method)
 
         trainer = Trainer(cfg, train_loader, model, criterion, optimizer, scaler, loggers['console'], device, loggers['wandb'], None, solver)
-        validator = Validator(cfg, valid_loader, valid_dataset, model, criterion, loggers['local'].log_dir, loggers['console'], loggers['wandb'])
+        validator = Validator(cfg, valid_loader, valid_dataset, model, criterion, loggers['local'], loggers['wandb'])
 
         metrics_for_plotting = {'train_total_loss_avg': [], 'task_conflict_intensity_avg': [], 'epoch_num': []}
         for_epoch = begin_epoch + cfg.TRAIN.END_EPOCH
@@ -70,7 +85,13 @@ def main():
 
         all_experiment_metrics[method_name] = metrics_for_plotting
 
-    generate_comparison_plots(all_experiment_metrics, cfg, loggers['local'], loggers['wandb'])
+    # Generate comparison plots in the main shared run directory
+    shared_local_logger = LocalFileLogger(str(base_log_dir), create_visualization_dirs=False)
+    generate_comparison_plots(all_experiment_metrics, cfg, shared_local_logger, loggers['wandb'])
+    
+    program_logger.info("[PROGRAM] - All experiments completed successfully")
+    program_logger.info(f"[PROGRAM] - Results saved in: {base_log_dir}")
+    program_logger.info("[PROGRAM] - Training session finished")
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Train Multitask network')
@@ -89,18 +110,77 @@ def create_data_loaders(cfg):
     valid_loader = DataLoaderX(valid_dataset, batch_size=cfg.TEST.BATCH_SIZE_PER_GPU, shuffle=False, num_workers=cfg.WORKERS, pin_memory=cfg.PIN_MEMORY, collate_fn=dataset.AutoDriveDataset.collate_fn)
     return train_loader, valid_loader, valid_dataset
 
-def setup_loggers(cfg, method_name):
-    run_id = f"run-{time.strftime('%Y%m%d-%H%M%S')}-{hash(time.time()) % 10000:04d}"
-    log_dir_path = Path(cfg.LOG_DIR) / cfg.DATASET.DATASET / f'{run_id}_{method_name}'
-    log_dir_path.mkdir(parents=True, exist_ok=True)
+def setup_program_logger(base_log_dir, shared_run_id):
+    """Setup the main program logger for complete execution tracking"""
+    program_logger = logging.getLogger(f'program_{shared_run_id}')
+    program_logger.handlers = []
+    program_logger.setLevel(logging.INFO)
+    program_logger.propagate = False
+    
+    # Use simple formatter to capture all training details  
+    formatter = logging.Formatter('%(asctime)s - %(message)s')
+    
+    # File handler for program.log
+    file_handler = logging.FileHandler(base_log_dir / 'program.log')
+    file_handler.setFormatter(formatter)
+    program_logger.addHandler(file_handler)
+    
+    return program_logger
 
-    console_logger = ConsoleLogger(str(log_dir_path), f'{run_id}_{method_name}')
-    wandb_logger = WandBLogger(cfg, f"{run_id}_{method_name}", project_name=f"multitask-training-{cfg.DATASET.DATASET}_refactor", reinit=True)
-    local_file_logger = LocalFileLogger(str(log_dir_path))
+def setup_comprehensive_logging(base_log_dir, shared_run_id):
+    """Setup comprehensive logging that captures all training details"""
+    # Setup main program logger
+    program_logger = setup_program_logger(base_log_dir, shared_run_id)
+    
+    # Also redirect stdout to capture print statements and progress bars
+    import sys
+    from contextlib import redirect_stdout, redirect_stderr
+    
+    # Create a custom logger that captures everything to program.log
+    class ComprehensiveLogger:
+        def __init__(self, log_file, original_stdout):
+            self.log_file = log_file
+            self.original_stdout = original_stdout
+            
+        def write(self, message):
+            # Write to both original stdout and log file
+            if message.strip():  # Only log non-empty messages
+                self.original_stdout.write(message)
+                with open(self.log_file, 'a', encoding='utf-8') as f:
+                    # Clean up progress bar characters and color codes
+                    clean_message = message.replace('\r', '\n').replace('\x1b[2K', '')
+                    # Remove ANSI color codes
+                    import re
+                    clean_message = re.sub(r'\x1b\[[0-9;]*m', '', clean_message)
+                    if clean_message.strip():
+                        f.write(clean_message)
+                        f.flush()
+            else:
+                self.original_stdout.write(message)
+                
+        def flush(self):
+            self.original_stdout.flush()
+    
+    # Replace stdout with our comprehensive logger
+    sys.stdout = ComprehensiveLogger(base_log_dir / 'program.log', sys.stdout)
+    
+    return program_logger
 
+def setup_loggers(cfg, method_name, shared_run_id=None):
+    if shared_run_id is None:
+        shared_run_id = f"run-{time.strftime('%Y%m%d-%H%M%S')}-{hash(time.time()) % 10000:04d}"
+    
+    # Create single timestamped folder with method subfolders
+    base_log_dir = Path(cfg.LOG_DIR) / cfg.DATASET.DATASET / shared_run_id
+    method_log_dir = base_log_dir / method_name
+    method_log_dir.mkdir(parents=True, exist_ok=True)
+
+    console_logger = ConsoleLogger(str(method_log_dir), f'{shared_run_id}_{method_name}')
+    local_file_logger = LocalFileLogger(str(method_log_dir))
+    wandb_logger = WandBLogger(cfg, f"{shared_run_id}_{method_name}", project_name=f"multitask-training-{cfg.DATASET.DATASET}_refactor", reinit=True)
+    
     wandb_logger.set_logger(console_logger.get_logger())
-    local_file_logger.set_logger(console_logger.get_logger())
-
+    
     return {'console': console_logger, 'wandb': wandb_logger, 'local': local_file_logger}
 
 def setup_experiment(cfg, device, method):
