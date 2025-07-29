@@ -1,0 +1,64 @@
+# YOLOP网络架构配置文件
+# 用于车道线检测和驾驶区域分割的多任务网络
+
+# 预测头索引配置
+prediction_heads:
+  det_out_idx: 2      # 检测输出索引
+  da_seg_out_idx: 16  # 驾驶区域分割输出索引  
+  ll_seg_out_idx: 31  # 车道线分割输出索引
+
+# 网络架构定义
+# 格式: [输入来源, 模块类型, 参数列表]
+layers:
+  # Backbone - ELANNet骨干网络
+  - [-1, "ELANNet", [true]]  # 0
+
+  # PaFPNELAN - 特征金字塔网络
+  - [0, "PaFPNELAN", []]    # 1
+
+  # Detection Head - YOLOX检测头
+  - [1, "YOLOXHead", [1, 0.75, [128, 256, 512]]]   # 2
+
+  # 渐进式上采样分支
+  - [1, "FPN_C3", []]        # 3
+  - [1, "FPN_C4", []]        # 4
+
+  # 第一个分割头分支 (驾驶区域分割)
+  - [4, "Conv", [512, 256, 3, 1]]           # 5
+  - [-1, "Upsample", [null, 2, "bilinear"]] # 6
+  - [-1, "ELANBlock_Head", [256, 128]]      # 7
+  - [-1, "Conv", [128, 64, 3, 1]]           # 8
+  - [-1, "Upsample", [null, 2, "bilinear"]] # 9
+  - [-1, "Conv", [64, 32, 3, 1]]            # 10
+  - [-1, "Upsample", [null, 2, "bilinear"]] # 11
+  - [-1, "Conv", [32, 16, 3, 1]]            # 12
+  - [-1, "ELANBlock_Head", [16, 8]]         # 13
+  - [-1, "Upsample", [null, 2, "bilinear"]] # 14
+  - [-1, "Conv", [8, 2, 3, 1]]              # 15
+  - [-1, "seg_head", ["sigmoid"]]           # 16 - 驾驶区域分割头
+
+  # 第二个分割头分支 (车道线分割) - 使用C2特征
+  - [1, "FPN_C2", []]                       # 17
+  - [-1, "Conv", [256, 128, 3, 1]]          # 18
+  
+  # C2和P3特征融合
+  - [3, "Conv", [128, 128, 3, 1]]           # 19
+  - [-1, "Upsample", [null, 2, "bilinear"]] # 20
+  - [[-1, 18], "MergeBlock", ["add"]]       # 21 - C2和P3特征相加
+  
+  # 车道线分割头后续层
+  - [-1, "ELANBlock_Head", [128, 64]]       # 22
+  - [-1, "PSA_p", [64, 64]]                 # 23
+  - [-1, "Conv", [64, 32, 3, 1]]            # 24
+  - [-1, "Upsample", [null, 2, "bilinear"]] # 25
+  - [-1, "Conv", [32, 16, 3, 1]]            # 26
+  - [-1, "ELANBlock_Head", [16, 8]]         # 27
+  - [-1, "PSA_p", [8, 8]]                   # 28
+  - [-1, "Upsample", [null, 2, "bilinear"]] # 29
+  - [-1, "Conv", [8, 2, 3, 1]]              # 30
+  - [-1, "seg_head", ["sigmoid"]]           # 31 - 车道线分割头
+
+# 模型配置参数
+model_config:
+  nc: 1  # 类别数量
+  input_size: [3, 256, 256]  # 输入尺寸 [通道数, 高度, 宽度]

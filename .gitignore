@@ -1,0 +1,20 @@
+**/bdd100k/images/
+**/bdd100k/labels/
+**/bdd100k_79863/
+*.sh
+*.json
+*__pycache__
+*.mp4
+inference/
+# onnx/
+*.onnx
+*.pth
+*.bag
+*.pt
+runs/
+yolop_train/
+*wandb/
+conflict_exe/
+**/bdd100k/*.jpg
+**/bdd100k/*.png
+**/demo/

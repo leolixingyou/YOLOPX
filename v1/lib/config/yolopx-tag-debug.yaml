@@ -1,0 +1,15 @@
+# YOLOP-TAG调试配置文件 - 只到Select步骤
+
+prediction_heads:
+  det_out_idx: 3      # Select的输出
+  da_seg_out_idx: -1  # 不存在
+  ll_seg_out_idx: -1  # 不存在 
+
+layers:
+  - [-1, "ELANNet", [True]]  # 0
+  - [0, "PaFPNELAN", []]    # 1
+  - [1, "MultiScaleTaskAttention", [[256, 512, 512, 256, 128, 256, 512], 3]] # 2
+  - [2, "Select", [0]]      # 3. 选择第0个任务
+
+model_config:
+  nc: 1
