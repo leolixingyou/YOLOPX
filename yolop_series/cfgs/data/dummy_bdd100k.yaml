@@ -1,0 +1,31 @@
+# Dummy BDD100k Dataset Configuration
+
+DATASET:
+  DATAROOT: '/workspace/YOLOPX/dummy_bdd100k/images'
+  LABELROOT: '/workspace/YOLOPX/dummy_bdd100k/labels'
+  MASKROOT: '/workspace/YOLOPX/dummy_bdd100k/da_seg_masks'
+  LANEROOT: '/workspace/YOLOPX/dummy_bdd100k/ll_seg_masks'
+  DATASET: BddDataset
+  TRAIN_SET: train
+  TEST_SET: val
+  DATA_FORMAT: jpg
+  SELECT_DATA: false
+  ORG_IMG_SIZE: [720, 1280]
+  IMAGE_SIZE: [384, 640] # h, w
+  NUM_SEG_CLASS: 2
+  NUMBER_IMAGE: -1
+  NC: 1  # Number of classes for detection
+  NAMES: ['car']
+
+AUGMENTATION:
+  FLIP: true
+  SCALE_FACTOR: 0.25
+  ROT_FACTOR: 10
+  TRANSLATE: 0.1
+  SHEAR: 0.0
+  COLOR_RGB: false
+  HSV_H: 0.015
+  HSV_S: 0.7
+  HSV_V: 0.4
+  MOSAIC_RATE: 0.0
+  MIXUP_RATE: 0.15

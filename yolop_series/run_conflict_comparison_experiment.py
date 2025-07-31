@@ -38,7 +38,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from utils.utils import get_optimizer
-from data.autodrive_dataset import AutoDriveDataset
+from data.autodrive_dataset import AutoDriveDataset, BddDataset
 from torch.utils.data import DataLoader
 from core.loss import get_loss
 from models.builder import get_net_from_yaml
@@ -156,8 +156,9 @@ class ExperimentRunner:
         normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         transform = transforms.Compose([transforms.ToTensor(), normalize])
         
-        train_dataset = AutoDriveDataset(cfg=cfg, is_train=True, transform=transform)
-        val_dataset = AutoDriveDataset(cfg=cfg, is_train=False, transform=transform)
+        # 使用BddDataset而不是AutoDriveDataset
+        train_dataset = BddDataset(cfg=cfg, is_train=True, transform=transform)
+        val_dataset = BddDataset(cfg=cfg, is_train=False, transform=transform)
         
         # 限制数据集大小
         if len(train_dataset) > self.config.train_images:
@@ -363,9 +364,13 @@ def main():
     
     # 模型配置映射
     model_configs = {
-        'yolopx_v2_anchor_free': {
-            'config_file': 'yolopx_v2_anchor_free.yaml',
+        'yolopx': {
+            'config_file': 'yolopx.yaml',
             'model_family': 'yolopx'
+        },
+        'yolop_v2': {
+            'config_file': 'yolop.yaml',
+            'model_family': 'yolop'
         },
         'yolop_v1_official': {
             'config_file': 'yolop_v1_official.yaml', 
@@ -374,11 +379,16 @@ def main():
         'yolop_v3_official': {
             'config_file': 'yolop_v3_official.yaml',
             'model_family': 'yolop_v3_official'
+        },
+        'yolopx_v2_anchor_free': {
+            'config_file': 'yolopx_v2_anchor_free.yaml',
+            'model_family': 'yolopx'
         }
     }
     
     # 加载基础配置
-    data_config = load_config('cfgs/data/bdd100k.yaml')
+    # 使用虚拟数据集进行测试
+    data_config = load_config('cfgs/data/dummy_bdd100k.yaml')
     train_config = load_config('cfgs/train_v2.yaml')
     
     # 更新训练配置
