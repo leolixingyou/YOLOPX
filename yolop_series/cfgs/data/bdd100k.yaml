@@ -1,0 +1,31 @@
+# BDD100k Dataset Configuration
+
+DATASET:
+  DATAROOT: '/workspace/YOLOPX/v1/bdd100k/images'
+  LABELROOT: '/workspace/bdd100k/yolop_train/bdd_det/'
+  MASKROOT: '/workspace/bdd100k/yolop_train/bdd_seg_gt/'
+  LANEROOT: '/workspace/bdd100k/yolop_train/bdd_lane_gt/'
+  DATASET: BddDataset
+  TRAIN_SET: train
+  TEST_SET: val
+  DATA_FORMAT: jpg
+  SELECT_DATA: false
+  ORG_IMG_SIZE: [720, 1280]
+  IMAGE_SIZE: [384, 640] # h, w
+  NUM_SEG_CLASS: 2
+  NUMBER_IMAGE: 1000 # Limit number of images for debugging, set to -1 to use all
+  NC: 1  # Number of classes for detection
+  NAMES: ['car']
+
+AUGMENTATION:
+  FLIP: true
+  SCALE_FACTOR: 0.25
+  ROT_FACTOR: 10
+  TRANSLATE: 0.1
+  SHEAR: 0.0
+  COLOR_RGB: false
+  HSV_H: 0.015
+  HSV_S: 0.7
+  HSV_V: 0.4
+  MOSAIC_RATE: 0.0
+  MIXUP_RATE: 0.15

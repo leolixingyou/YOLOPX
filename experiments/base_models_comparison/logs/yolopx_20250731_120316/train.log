@@ -1,0 +1,5 @@
+usage: run_conflict_comparison_experiment.py [-h] [--epochs EPOCHS]
+                                             [--train_images TRAIN_IMAGES]
+                                             [--val_images VAL_IMAGES]
+                                             [--models MODELS [MODELS ...]]
+run_conflict_comparison_experiment.py: error: unrecognized arguments: --model_name yolopx --batch_size 4 --lr 0.001 --seed 42 --methods original --wandb_project yolopx-base-comparison --wandb_name yolopx_20250731_120316 --save_best_model --logdir /workspace/YOLOPX/experiments/base_models_comparison/runs/yolopx_20250731_120316

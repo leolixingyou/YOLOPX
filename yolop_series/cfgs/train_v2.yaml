@@ -1,0 +1,49 @@
+# YOLOPX-V2 Main Training Configuration
+
+# General Settings
+LOG_DIR: '/workspace/YOLOPX/v2/runs/'
+WORKERS: 4
+PIN_MEMORY: True
+PRINT_FREQ: 10
+DEBUG: False
+
+# Cudnn Settings
+CUDNN:
+  BENCHMARK: True
+  DETERMINISTIC: False
+  ENABLED: True
+
+# Loss Function Settings
+LOSS:
+  FL_GAMMA: 2.0
+  SEG_POS_WEIGHT: 1.0
+  # The following are weights for different components of the detection loss
+  # and weights for each of the three main task losses.
+  # These might be superseded by specific settings in model configs if needed.
+  BOX_GAIN: 0.05
+  CLS_GAIN: 0.5
+  OBJ_GAIN: 1.0
+  DA_SEG_GAIN: 0.2
+  LL_SEG_GAIN: 0.3
+  LL_IOU_GAIN: 0.5 # Example value
+
+# Training Hyperparameters
+TRAIN:
+  OPTIMIZER: 'adamw'
+  LR0: 0.001
+  LRF: 0.1
+  MOMENTUM: 0.937
+  WD: 0.0005
+  WARMUP_EPOCHS: 3.0
+  WARMUP_MOMENTUM: 0.8
+  WARMUP_BIASE_LR: 0.1
+  BATCH_SIZE_PER_GPU: 4
+  SHUFFLE: True
+  BEGIN_EPOCH: 0
+  END_EPOCH: 20
+
+# Testing/Validation Settings
+TEST:
+  BATCH_SIZE_PER_GPU: 8
+  NMS_CONF_THRESHOLD: 0.001
+  NMS_IOU_THRESHOLD: 0.6

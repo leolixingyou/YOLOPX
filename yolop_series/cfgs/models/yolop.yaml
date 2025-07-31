@@ -1,0 +1,83 @@
+# YOLOP (Anchor-based) Model Configuration
+# Compatible with v1 structure using Detect (anchor-based) head
+
+# 模型通用配置
+model_config:
+  nc: 1  # Number of classes for detection
+  input_size: [3, 256, 256]  # Input size [channels, height, width]
+
+# 预测头输出索引
+prediction_heads:
+  det_out_idx: 5      # Detection head output index
+  da_seg_out_idx: 19  # Drivable area segmentation output index  
+  ll_seg_out_idx: 34  # Lane line segmentation output index
+
+# 网络架构定义
+# 格式: [输入来源, 模块类型, 参数列表]
+layers:
+  # Backbone - ELANNet骨干网络
+  - [-1, "ELANNet", [true]]  # 0
+
+  # PaFPNELAN - 特征金字塔网络
+  - [0, "PaFPNELAN", []]    # 1
+
+  # Multi-scale feature extraction for YOLOPHead
+  - [1, "Select", [4]]      # 2 - Get P3 features (128 channels)  
+  - [1, "Select", [5]]      # 3 - Get P4 features (256 channels)
+  - [1, "Select", [6]]      # 4 - Get P5 features (512 channels)
+  
+  # Detection Head - Anchor-based YOLOPHead (YOLOP style)
+  - [[2, 3, 4], "YOLOPHead", [1, [[3,9,5,11,4,20], [7,18,6,39,12,31], [19,50,38,81,68,157]], [128, 256, 512]]]   # 5
+
+  # 渐进式上采样分支
+  - [1, "FPN_C3", []]        # 6
+  - [1, "FPN_C4", []]        # 7
+
+  # 第一个分割头分支 (驾驶区域分割)
+  - [7, "Conv", [512, 256, 3, 1]]           # 8
+  - [-1, "Upsample", [null, 2, "bilinear"]] # 9
+  - [-1, "ELANBlock_Head", [256, 128]]      # 10
+  - [-1, "Conv", [128, 64, 3, 1]]           # 11
+  - [-1, "Upsample", [null, 2, "bilinear"]] # 12
+  - [-1, "Conv", [64, 32, 3, 1]]            # 13
+  - [-1, "Upsample", [null, 2, "bilinear"]] # 14
+  - [-1, "Conv", [32, 16, 3, 1]]            # 15
+  - [-1, "ELANBlock_Head", [16, 8]]         # 16
+  - [-1, "Upsample", [null, 2, "bilinear"]] # 17
+  - [-1, "Conv", [8, 2, 3, 1]]              # 18
+  - [-1, "seg_head", ["sigmoid"]]           # 19 - 驾驶区域分割头
+
+  # 第二个分割头分支 (车道线分割) - 使用C2特征
+  - [1, "FPN_C2", []]                       # 20
+  - [-1, "Conv", [256, 128, 3, 1]]          # 21
+  
+  # C2和P3特征融合
+  - [6, "Conv", [128, 128, 3, 1]]           # 22
+  - [-1, "Upsample", [null, 2, "bilinear"]] # 23
+  - [[-1, 21], "MergeBlock", ["add"]]       # 24 - C2和P3特征相加
+  
+  # 车道线分割头后续层
+  - [-1, "ELANBlock_Head", [128, 64]]       # 25
+  - [-1, "PSA_p", [64, 64]]                 # 26
+  - [-1, "Conv", [64, 32, 3, 1]]            # 27
+  - [-1, "Upsample", [null, 2, "bilinear"]] # 28
+  - [-1, "Conv", [32, 16, 3, 1]]            # 29
+  - [-1, "ELANBlock_Head", [16, 8]]         # 30
+  - [-1, "PSA_p", [8, 8]]                   # 31
+  - [-1, "Upsample", [null, 2, "bilinear"]] # 32
+  - [-1, "Conv", [8, 2, 3, 1]]              # 33
+  - [-1, "seg_head", ["sigmoid"]]           # 34 - 车道线分割头
+
+# 注释说明
+comments:
+  architecture: "YOLOP (anchor-based) 多任务网络，同时进行目标检测、驾驶区域分割和车道线分割"
+  backbone: "ELANNet作为骨干网络提取特征"
+  neck: "PaFPNELAN进行多尺度特征融合"
+  heads: 
+    - "Detect用于anchor-based目标检测"
+    - "两个独立的分割头分别处理驾驶区域和车道线分割"
+  detection_type: "anchor-based"
+  features:
+    - "使用FPN_C2, FPN_C3, FPN_C4进行多尺度特征提取"
+    - "通过MergeBlock进行特征融合"
+    - "使用PSA_p注意力机制增强特征表达"

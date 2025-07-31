@@ -1,0 +1,59 @@
+# Default Training and Model Configuration
+LOG_DIR: 'runs/'
+
+# --- General ---
+GPUS: [0]
+WORKERS: 8
+PIN_MEMORY: true
+PRINT_FREQ: 50
+AUTO_RESUME: false
+DEBUG: false
+
+# --- CUDNN ---
+CUDNN:
+  BENCHMARK: true
+  DETERMINISTIC: false
+  ENABLED: true
+
+# --- MODEL ---
+MODEL:
+  NAME: 'yolopx' # Default model
+  PRETRAINED: '' # Path to pretrained weights
+
+# --- LOSS ---
+LOSS:
+  FL_GAMMA: 2.0
+  CLS_POS_WEIGHT: 1.0
+  OBJ_POS_WEIGHT: 1.0
+  SEG_POS_WEIGHT: 1.0
+  BOX_GAIN: 0.05
+  CLS_GAIN: 0.5
+  OBJ_GAIN: 1.0
+  DA_SEG_GAIN: 0.2
+  LL_SEG_GAIN: 0.2
+  LL_IOU_GAIN: 0.2
+
+# --- TRAIN ---
+TRAIN:
+  OPTIMIZER: 'adamw'
+  LR0: 0.001
+  LRF: 0.1
+  MOMENTUM: 0.937
+  WD: 0.0005
+  NESTEROV: true
+  WARMUP_EPOCHS: 3.0
+  WARMUP_BIASE_LR: 0.1
+  WARMUP_MOMENTUM: 0.8
+  BEGIN_EPOCH: 0
+  END_EPOCH: 5
+  VAL_FREQ: 1
+  BATCH_SIZE_PER_GPU: 16
+  SHUFFLE: true
+  IOU_THRESHOLD: 0.2
+  ANCHOR_THRESHOLD: 4.0
+
+# --- TEST ---
+TEST:
+  BATCH_SIZE_PER_GPU: 32
+  NMS_CONF_THRESHOLD: 0.001
+  NMS_IOU_THRESHOLD: 0.6

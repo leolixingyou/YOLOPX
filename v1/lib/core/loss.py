@@ -50,54 +50,50 @@ class MultiHeadLoss(nn.Module):
 
     def _forward_impl(self, predictions, targets, shapes, model, imgs):
         """
-
         Args:
-            predictions: predicts of [[det_head1, det_head2, det_head3, det_head4, det_head5], drive_area_seg_head, lane_line_seg_head]
+            predictions: predicts of [[det_head1, det_head2, ...], drive_area_seg_head, lane_line_seg_head]
             targets: gts [det_targets, segment_targets, lane_targets]
             model:
-
         Returns:
             total_loss: sum of all the loss
             head_losses: list containing losses
-
         """
         cfg = self.cfg
         device = targets[0].device
-
         Det_loss, Da_Seg_Loss, Ll_Seg_Loss, Tversky_Loss = self.loss_list
 
         # ComputeLossOTA
-        det_all_loss = Det_loss(predictions[0], targets[0], imgs)
+    det_all_loss = Det_loss(predictions[0], targets[0], imgs)
 
-        # driving area BCE loss 
-        # predictions[1] = shape( B 2 H W ) ， 两个channel代表前景（1）与背景（0）
-        drive_area_seg_predicts = predictions[1].view(-1)
-        # target[1] = shape( B 2 H W ) , dim0=bg, dim1 = road
-        drive_area_seg_targets = targets[1].view(-1)
-        da_seg_loss = Da_Seg_Loss(drive_area_seg_predicts, drive_area_seg_targets)
+    # driving area BCE loss 
+    # predictions[1] = shape( B 2 H W ) ， 两个channel代表前景（1）与背景（0）
+    drive_area_seg_predicts = predictions[1].view(-1)
+    # target[1] = shape( B 2 H W ) , dim0=bg, dim1 = road
+    drive_area_seg_targets = targets[1].view(-1)
+    da_seg_loss = Da_Seg_Loss(drive_area_seg_predicts, drive_area_seg_targets)
 
-        # lane line focal loss
-        # predictions[2] = shape( B 2 H W ) ， 两个channel代表前景（1）与背景（0）
-        lane_line_seg_predicts = predictions[2].view(-1)
-        # target[2] = shape( B 2 H W ) 
-        lane_line_seg_targets = targets[2].view(-1)
-        ll_seg_loss = Ll_Seg_Loss(lane_line_seg_predicts, lane_line_seg_targets)
+    # lane line focal loss
+    # predictions[2] = shape( B 2 H W ) ， 两个channel代表前景（1）与背景（0）
+    lane_line_seg_predicts = predictions[2].view(-1)
+    # target[2] = shape( B 2 H W ) 
+    lane_line_seg_targets = targets[2].view(-1)
+    ll_seg_loss = Ll_Seg_Loss(lane_line_seg_predicts, lane_line_seg_targets)
 
-        # predictions[1] = shape( B 3 H W ) ， dim0=bg, dim1 = road, dim2 = lane
-        tversky_predicts = predictions[2]
-        # target[1] = shape( B 3 H W ) ,   dim0=bg, dim1 = road, dim2 = lane
-        tversky_targets = targets[2]
-        ll_tversky_loss = Tversky_Loss(tversky_predicts, tversky_targets)
+    # predictions[1] = shape( B 3 H W ) ， dim0=bg, dim1 = road, dim2 = lane
+    tversky_predicts = predictions[2]
+    # target[1] = shape( B 3 H W ) ,   dim0=bg, dim1 = road, dim2 = lane
+    tversky_targets = targets[2]
+    ll_tversky_loss = Tversky_Loss(tversky_predicts, tversky_targets)
 
 
-        det_all_loss *= 0.02 * self.lambdas[1]
-        da_seg_loss *= 0.2 * self.lambdas[2]
-        ll_seg_loss *= 0.6 * self.lambdas[3]
-        ll_tversky_loss *= 0.6 * self.lambdas[4]
-        
-        loss = det_all_loss + da_seg_loss + ll_seg_loss + ll_tversky_loss
+    det_all_loss *= 0.02 * self.lambdas[1]
+    da_seg_loss *= 0.2 * self.lambdas[2]
+    ll_seg_loss *= 0.6 * self.lambdas[3]
+    ll_tversky_loss *= 0.6 * self.lambdas[4]
+    
+    loss = det_all_loss + da_seg_loss + ll_seg_loss + ll_tversky_loss
 
-        return loss, (det_all_loss, da_seg_loss, ll_seg_loss, ll_tversky_loss, loss)
+    return loss, (det_all_loss, da_seg_loss, ll_seg_loss, ll_tversky_loss, loss)
         # return loss, (det_all_loss.item(), da_seg_loss.item(), ll_seg_loss.item(), ll_tversky_loss.item(), loss.item()) # original return format
 
 

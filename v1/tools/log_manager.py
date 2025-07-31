@@ -49,14 +49,21 @@ def _overlay_mask_on_image(image_np, mask_np, color=(0, 255, 0), alpha=0.5):
     return overlay
 
 def _draw_box(img, xyxy, label, color):
-    x1, y1, x2, y2 = [int(c) for c in xyxy]
-    cv2.rectangle(img, (x1, y1), (x2, y2), color, 2)
-    # Add label text
-    tf = max(1, round(0.002 * (img.shape[0] + img.shape[1]) / 2))
-    t_size = cv2.getTextSize(label, 0, fontScale=tf / 3, thickness=tf)[0]
-    c2 = x1 + t_size[0], y1 - t_size[1] - 3
-    cv2.rectangle(img, (x1, y1), c2, color, -1, cv2.LINE_AA)  # filled
-    cv2.putText(img, label, (x1, y1 - 2), 0, tf / 3, [225, 255, 255], thickness=tf, lineType=cv2.LINE_AA)
+    try:
+        # Flatten list and convert to int, handling potential nested lists/tensors
+        coords = np.array(xyxy).flatten().tolist()
+        x1, y1, x2, y2 = map(int, coords)
+        
+        cv2.rectangle(img, (x1, y1), (x2, y2), color, 2)
+        # Add label text
+        tf = max(1, round(0.002 * (img.shape[0] + img.shape[1]) / 2))
+        t_size = cv2.getTextSize(label, 0, fontScale=tf / 3, thickness=tf)[0]
+        c2 = x1 + t_size[0], y1 - t_size[1] - 3
+        cv2.rectangle(img, (x1, y1), c2, color, -1, cv2.LINE_AA)  # filled
+        cv2.putText(img, label, (x1, y1 - 2), 0, tf / 3, [225, 255, 255], thickness=tf, lineType=cv2.LINE_AA)
+    except (ValueError, TypeError) as e:
+        print(f"Skipping drawing box due to invalid coordinate format: {xyxy}. Error: {e}")
+        return
 
 # Placeholder for coco80_to_coco91_class if not directly imported or accessible
 # In a real scenario, you'd import this from lib.core.general or define it if standalone.

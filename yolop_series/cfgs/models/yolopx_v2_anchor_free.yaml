@@ -1,0 +1,68 @@
+# YOLOPX-V2 专门化检测头架构
+
+# 预测头索引配置
+prediction_heads:
+  det_head_1_idx: 2   # 动态物体检测头
+  det_head_2_idx: 3   # 静态设施检测头
+  da_seg_out_idx: 17  # 驾驶区域分割输出索引  
+  ll_seg_out_idx: 32  # 车道线分割输出索引
+
+# 网络架构定义
+# 格式: [输入来源, 模块类型, 参数列表]
+layers:
+  # Backbone - ELANNet骨干网络
+  - [-1, "ELANNet", [true]]  # 0
+
+  # PaFPNELAN - 特征金字塔网络
+  - [0, "PaFPNELAN", []]    # 1
+
+  # --- Detection Heads ---
+  # Head 1: Dynamic Agents (e.g., car, person)
+  - [1, "YOLOXHead", [1, 0.75, [128, 256, 512]]]   # 2 - det_head_1_idx
+  # Head 2: Static Facilities (e.g., traffic lights, signs)
+  - [1, "YOLOXHead", [1, 0.75, [128, 256, 512]]]   # 3 - det_head_2_idx
+
+  # --- Segmentation Branches ---
+  # 渐进式上采样分支
+  - [1, "FPN_C3", []]        # 4
+  - [1, "FPN_C4", []]        # 5
+
+  # 第一个分割头分支 (驾驶区域分割)
+  - [5, "Conv", [512, 256, 3, 1]]           # 6
+  - [-1, "Upsample", [null, 2, "bilinear"]] # 7
+  - [-1, "ELANBlock_Head", [256, 128]]      # 8
+  - [-1, "Conv", [128, 64, 3, 1]]           # 9
+  - [-1, "Upsample", [null, 2, "bilinear"]] # 10
+  - [-1, "Conv", [64, 32, 3, 1]]            # 11
+  - [-1, "Upsample", [null, 2, "bilinear"]] # 12
+  - [-1, "Conv", [32, 16, 3, 1]]            # 13
+  - [-1, "ELANBlock_Head", [16, 8]]         # 14
+  - [-1, "Upsample", [null, 2, "bilinear"]] # 15
+  - [-1, "Conv", [8, 2, 3, 1]]              # 16
+  - [-1, "seg_head", ["sigmoid"]]           # 17 - da_seg_out_idx
+
+  # 第二个分割头分支 (车道线分割) - 使用C2特征
+  - [1, "FPN_C2", []]                       # 18
+  - [-1, "Conv", [256, 128, 3, 1]]          # 19
+  
+  # C2和P3特征融合
+  - [4, "Conv", [128, 128, 3, 1]]           # 20
+  - [-1, "Upsample", [null, 2, "bilinear"]] # 21
+  - [[-1, 19], "MergeBlock", ["add"]]       # 22 - C2和P3特征相加
+  
+  # 车道线分割头后续层
+  - [-1, "ELANBlock_Head", [128, 64]]       # 23
+  - [-1, "PSA_p", [64, 64]]                 # 24
+  - [-1, "Conv", [64, 32, 3, 1]]            # 25
+  - [-1, "Upsample", [null, 2, "bilinear"]] # 26
+  - [-1, "Conv", [32, 16, 3, 1]]            # 27
+  - [-1, "ELANBlock_Head", [16, 8]]         # 28
+  - [-1, "PSA_p", [8, 8]]                   # 29
+  - [-1, "Upsample", [null, 2, "bilinear"]] # 30
+  - [-1, "Conv", [8, 2, 3, 1]]              # 31
+  - [-1, "seg_head", ["sigmoid"]]           # 32 - ll_seg_out_idx
+
+# 模型配置参数
+model_config:
+  nc: 1  # 类别数量
+  input_size: [3, 256, 256]  # 输入尺寸 [通道数, 高度, 宽度]

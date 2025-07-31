@@ -1,0 +1,19 @@
+BATCH_SIZE: 4
+EPOCHS: 1
+LEARNING_RATE: 0.001
+LOG_DIR: /workspace/YOLOPX/experiments/base_models_comparison/logs/yolopx_20250731_115743
+LOG_INTERVAL: 10
+OUTPUT_DIR: /workspace/YOLOPX/experiments/base_models_comparison/results/yolopx_20250731_115743
+SAVE_INTERVAL: 5
+SEED: 42
+TASK_CONFLICT:
+  ENABLE: true
+  LOG_INTERVAL: 10
+VAL_INTERVAL: 1
+WANDB:
+  ENABLE: true
+  MODE: online
+  NAME: yolopx_20250731_115743
+  PROJECT: yolopx-base-comparison
+WARMUP_EPOCHS: 3
+WEIGHT_DECAY: 0.0005

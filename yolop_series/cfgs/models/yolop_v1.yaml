@@ -1,0 +1,56 @@
+# YOLOP v1 Model Configuration
+# Based on official YOLOPv1 with CSP-Darknet backbone
+
+# 预测头索引配置
+prediction_heads:
+  det_out_idx: 24    # Detection head output index
+  da_seg_out_idx: 31  # Drivable area segmentation
+  ll_seg_out_idx: 32  # Lane line segmentation
+
+# 网络架构定义
+layers:
+  # Backbone - CSP-Darknet53
+  - [-1, "Focus", [3, 32, 3]]               # 0
+  - [-1, "Conv", [32, 64, 3, 2]]            # 1
+  - [-1, "BottleneckCSP", [64, 64, 1]]      # 2
+  - [-1, "Conv", [64, 128, 3, 2]]           # 3
+  - [-1, "BottleneckCSP", [128, 128, 3]]    # 4
+  - [-1, "Conv", [128, 256, 3, 2]]          # 5
+  - [-1, "BottleneckCSP", [256, 256, 3]]    # 6
+  - [-1, "Conv", [256, 512, 3, 2]]          # 7
+  - [-1, "SPP", [512, 512, [5, 9, 13]]]     # 8
+  - [-1, "BottleneckCSP", [512, 512, 1]]    # 9
+  
+  # FPN
+  - [-1, "Conv", [512, 256, 1, 1]]          # 10
+  - [-1, "Upsample", [null, 2, "nearest"]]  # 11
+  - [[-1, 6], "Concat", [1]]                 # 12
+  - [-1, "BottleneckCSP", [512, 256, 1]]    # 13
+  
+  - [-1, "Conv", [256, 128, 1, 1]]          # 14
+  - [-1, "Upsample", [null, 2, "nearest"]]  # 15
+  - [[-1, 4], "Concat", [1]]                 # 16
+  - [-1, "BottleneckCSP", [256, 128, 1]]    # 17 (P3/8-small)
+  
+  - [-1, "Conv", [128, 128, 3, 2]]          # 18
+  - [[-1, 14], "Concat", [1]]               # 19
+  - [-1, "BottleneckCSP", [256, 256, 1]]    # 20 (P4/16-medium)
+  
+  - [-1, "Conv", [256, 256, 3, 2]]          # 21
+  - [[-1, 10], "Concat", [1]]               # 22
+  - [-1, "BottleneckCSP", [512, 512, 1]]    # 23 (P5/32-large)
+  
+  # Detection Head
+  - [[17, 20, 23], "YOLOPHead", [1, [[3,9,5,11,4,20], [7,18,6,39,12,31], [19,50,38,81,68,157]], [128, 256, 512]]]  # 24
+  
+  # Segmentation Heads
+  - [16, "Conv", [256, 128, 3, 1]]          # 25
+  - [-1, "Upsample", [null, 2, "bilinear"]] # 26
+  - [-1, "BottleneckCSP", [128, 64, 1]]     # 27
+  - [-1, "Conv", [64, 32, 3, 1]]            # 28
+  - [-1, "Upsample", [null, 2, "bilinear"]] # 29
+  - [-1, "Conv", [32, 16, 3, 1]]            # 30
+  
+  # Final segmentation outputs
+  - [-1, "Conv", [16, 2, 1, 1]]             # 31 - da_seg_out_idx
+  - [30, "Conv", [16, 2, 1, 1]]             # 32 - ll_seg_out_idx

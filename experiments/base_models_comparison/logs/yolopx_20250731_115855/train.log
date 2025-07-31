@@ -1,0 +1,11 @@
+[2025-07-31 11:58:56] INFO: Configurations loaded successfully.
+Traceback (most recent call last):
+  File "/workspace/YOLOPX/v2/train.py", line 111, in <module>
+    main()
+  File "/workspace/YOLOPX/v2/train.py", line 52, in main
+    train_loader = DataLoader(
+  File "/usr/local/lib/python3.8/dist-packages/torch/utils/data/dataloader.py", line 344, in __init__
+    sampler = RandomSampler(dataset, generator=generator)  # type: ignore[arg-type]
+  File "/usr/local/lib/python3.8/dist-packages/torch/utils/data/sampler.py", line 107, in __init__
+    raise ValueError("num_samples should be a positive integer "
+ValueError: num_samples should be a positive integer value, but got num_samples=0

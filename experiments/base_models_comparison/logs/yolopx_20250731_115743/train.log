@@ -1,0 +1,7 @@
+[2025-07-31 11:57:44] INFO: Configurations loaded successfully.
+Traceback (most recent call last):
+  File "/workspace/YOLOPX/v2/train.py", line 111, in <module>
+    main()
+  File "/workspace/YOLOPX/v2/train.py", line 43, in main
+    cudnn.benchmark = cfg.CUDNN.BENCHMARK
+AttributeError: 'EasyDict' object has no attribute 'CUDNN'

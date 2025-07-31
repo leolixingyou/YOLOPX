@@ -1,0 +1,45 @@
+CUDNN:
+  BENCHMARK: true
+  DETERMINISTIC: false
+  ENABLED: true
+DEBUG: false
+LOG_DIR: /workspace/YOLOPX/experiments/base_models_comparison/logs/yolopx_20250731_115816/
+LOSS:
+  BOX_GAIN: 0.05
+  CLS_GAIN: 0.5
+  DA_SEG_GAIN: 0.2
+  FL_GAMMA: 2.0
+  LL_IOU_GAIN: 0.5
+  LL_SEG_GAIN: 0.3
+  OBJ_GAIN: 1.0
+  SEG_POS_WEIGHT: 1.0
+OUTPUT_DIR: /workspace/YOLOPX/experiments/base_models_comparison/results/yolopx_20250731_115816
+PIN_MEMORY: true
+PRINT_FREQ: 10
+SEED: 42
+TASK_CONFLICT:
+  ENABLE: true
+  LOG_INTERVAL: 10
+TEST:
+  BATCH_SIZE_PER_GPU: 8
+  NMS_CONF_THRESHOLD: 0.001
+  NMS_IOU_THRESHOLD: 0.6
+TRAIN:
+  BATCH_SIZE_PER_GPU: 4
+  BEGIN_EPOCH: 0
+  END_EPOCH: 1
+  LR0: 0.001
+  LRF: 0.1
+  MOMENTUM: 0.937
+  OPTIMIZER: adamw
+  SHUFFLE: true
+  WARMUP_BIASE_LR: 0.1
+  WARMUP_EPOCHS: 3.0
+  WARMUP_MOMENTUM: 0.8
+  WD: 0.0005
+WANDB:
+  ENABLE: true
+  MODE: online
+  NAME: yolopx_20250731_115816
+  PROJECT: yolopx-base-comparison
+WORKERS: 4

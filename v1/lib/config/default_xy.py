@@ -30,6 +30,7 @@ _C.MODEL.NAME = "YOLOPv1" # YOLOPv1, YOLOPX
 _C.MODEL.NAME = "YOLOPX" # YOLOPv1, YOLOPX
 _C.MODEL.STRU_WITHSHARE = False     #add share_block to segbranch
 _C.MODEL.HEADS_NAME = ['']
+_C.MODEL.NC = 10 # Number of classes
 
 # MODIFY
 if _C.MODEL.NAME == "YOLOPX":
