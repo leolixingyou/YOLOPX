@@ -15,7 +15,6 @@ from pathlib import Path
 
 # 添加路径
 sys.path.insert(0, '/workspace/YOLOPX/yolop_series')
-sys.path.insert(0, '/workspace/YOLOPX/v1')
 
 # ============ 配置 ============
 EXPERIMENT_CONFIG = {
