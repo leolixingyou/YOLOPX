@@ -15,7 +15,7 @@ from pathlib import Path
 import argparse
 
 # 添加v2到路径
-sys.path.insert(0, '/workspace/YOLOPX/v2')
+sys.path.insert(0, '/workspace/YOLOPX/yolop_series')
 
 from models.builder import get_net_from_yaml
 from torch.utils.data import DataLoader, Dataset
