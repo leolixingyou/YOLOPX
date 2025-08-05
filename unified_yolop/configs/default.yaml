@@ -1,0 +1,89 @@
+# Default configuration for Unified YOLOP Framework
+
+# Model Configuration
+MODEL:
+  NAME: 'yolopx'  # Options: 'yolop_v1', 'yolop_v2', 'yolop_v3', 'yolopx'
+  PRETRAINED: ''  # Path to pretrained weights
+  IMAGE_SIZE: [640, 640]  # [width, height]
+  
+# Dataset Configuration
+DATASET:
+  ROOT: '/workspace/bdd100k/yolop_train/'
+  TRAIN_SET: 'train'
+  VAL_SET: 'val'
+  TEST_SET: 'test'
+  NUM_CLASSES: 1  # Number of object classes
+  NUM_SEG_CLASSES: 2  # Number of segmentation classes
+  CACHE: false  # Cache images in memory
+
+# Training Configuration
+TRAIN:
+  BATCH_SIZE: 4
+  EPOCHS: 100
+  WORKERS: 0  # Set to 0 to avoid multiprocessing issues
+  # Optimizer
+  OPTIMIZER: 'adamw'  # Options: 'sgd', 'adam', 'adamw'
+  LR: 0.001
+  LR_SCHEDULE: 'cosine'  # Options: 'cosine', 'step', 'poly'
+  MOMENTUM: 0.937
+  WEIGHT_DECAY: 0.0005
+  # Warmup
+  WARMUP_EPOCHS: 3
+  WARMUP_LR: 0.0001
+  # Augmentation
+  AUGMENT: true
+  MIXUP: 0.0
+  CUTMIX: 0.0
+
+# Loss Configuration
+LOSS:
+  # Detection losses
+  BOX_LOSS_GAIN: 0.05
+  CLS_LOSS_GAIN: 0.5
+  OBJ_LOSS_GAIN: 1.0
+  # Segmentation losses
+  DA_SEG_LOSS_GAIN: 0.2  # Driving area
+  LL_SEG_LOSS_GAIN: 0.2  # Lane line
+  LL_IOU_LOSS_GAIN: 0.2  # Lane line IoU
+  # Focal loss (for anchor-free)
+  FOCAL_ALPHA: 0.25
+  FOCAL_GAMMA: 2.0
+
+# Task Conflict Detection
+CONFLICT:
+  ENABLED: true
+  METHOD: 'gradient'  # Options: 'gradient', 'loss_ratio', 'both'
+  LOG_INTERVAL: 50  # Log conflict metrics every N iterations
+  # Conflict resolution
+  RESOLUTION: 'none'  # Options: 'none', 'pcgrad', 'cagrad', 'tag'
+  
+# Validation Configuration
+VAL:
+  BATCH_SIZE: 16
+  INTERVAL: 1  # Validate every N epochs
+  SAVE_BEST: true
+  # NMS parameters
+  CONF_THRESH: 0.001
+  IOU_THRESH: 0.6
+  
+# Testing Configuration  
+TEST:
+  BATCH_SIZE: 1
+  CONF_THRESH: 0.25
+  IOU_THRESH: 0.45
+  SAVE_JSON: true
+  SAVE_TXT: true
+  
+# System Configuration
+SYSTEM:
+  DEVICE: 'cuda:0'  # Options: 'cpu', 'cuda:0', 'cuda:1', etc.
+  CUDNN_BENCHMARK: true
+  SEED: 42
+  
+# Logging Configuration
+LOG:
+  DIR: './runs'
+  SAVE_INTERVAL: 5  # Save checkpoint every N epochs
+  LOG_INTERVAL: 20  # Log training stats every N iterations
+  WANDB: true  # Use Weights & Biases logging
+  TENSORBOARD: true  # Use TensorBoard logging

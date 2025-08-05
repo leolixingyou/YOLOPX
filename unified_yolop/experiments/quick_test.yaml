@@ -1,0 +1,19 @@
+# Quick test configuration
+experiment:
+  name: "quick_test"
+  description: "Quick test with limited data"
+  
+# Test with single model
+models:
+  - yolopx
+
+# Minimal parameters for quick testing  
+training:
+  epochs: 1
+  batch_size: 2
+  
+# Limited dataset
+dataset:
+  train_samples: 50
+  val_samples: 20
+  quick_test: true

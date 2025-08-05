@@ -1,0 +1,27 @@
+# YOLOPX Configuration (Anchor-free)
+
+MODEL:
+  NAME: 'yolopx'
+  BACKBONE: 'ELANNet'
+  NECK: 'PaFPNELAN'
+  HEAD_TYPE: 'anchor_free'  # YOLOX-style detection head
+  
+  # No anchors needed for anchor-free
+  ANCHORS: null
+  
+  # YOLOX specific settings
+  YOLOX:
+    USE_L1: true  # Use L1 loss for bbox regression
+    CENTER_SAMPLING: true
+    CENTER_SAMPLING_RADIUS: 2.5
+    
+# Loss configuration for anchor-free
+LOSS:
+  FOCAL_GAMMA: 2.0  # Focal loss is important for anchor-free
+  USE_IOU_LOSS: true  # IoU loss for better localization
+  
+# Training specifics
+TRAIN:
+  # Data augmentation more important for anchor-free
+  MOSAIC: 1.0
+  MIXUP: 0.15

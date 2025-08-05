@@ -1,0 +1,69 @@
+# YOLOP Series Unified Configuration
+
+# Model selection
+MODEL:
+  TYPE: 'yolopx'  # Options: 'yolop_v1', 'yolop_v2', 'yolop_v3', 'yolopx'
+  PRETRAINED: ''  # Path to pretrained weights
+  
+# Dataset configuration  
+DATASET:
+  DATAROOT: '/workspace/bdd100k/yolop_train/'
+  TRAIN_SET: 'train'
+  VAL_SET: 'val'
+  TEST_SET: 'test'
+  IMAGE_SIZE: [640, 640]  # width, height
+  NUM_CLASSES: 1  # Number of detection classes
+  NUM_SEG_CLASSES: 2  # Number of segmentation classes
+
+# Training configuration
+TRAIN:
+  BATCH_SIZE: 16
+  EPOCHS: 100
+  LR0: 0.001  # Initial learning rate
+  LRF: 0.1    # Final learning rate factor
+  MOMENTUM: 0.937
+  WEIGHT_DECAY: 0.0005
+  WARMUP_EPOCHS: 3.0
+  OPTIMIZER: 'adamw'  # Options: 'sgd', 'adam', 'adamw'
+  
+# Loss configuration
+LOSS:
+  BOX_GAIN: 0.05
+  CLS_GAIN: 0.5
+  OBJ_GAIN: 1.0
+  DA_SEG_GAIN: 0.2  # Driving area segmentation
+  LL_SEG_GAIN: 0.2  # Lane line segmentation
+  LL_IOU_GAIN: 0.2  # Lane line IoU
+  FL_GAMMA: 2.0     # Focal loss gamma (for YOLOPX)
+
+# Task conflict detection
+CONFLICT:
+  ENABLED: true
+  METHOD: 'gradient'  # Options: 'gradient', 'loss_ratio', 'both'
+  LOG_FREQ: 50       # Log conflict metrics every N iterations
+  
+# Hardware configuration
+DEVICE:
+  GPUS: [0]
+  WORKERS: 8
+  PIN_MEMORY: true
+  
+# Logging and checkpointing
+LOG:
+  DIR: 'runs/'
+  PRINT_FREQ: 20
+  SAVE_FREQ: 5  # Save checkpoint every N epochs
+  
+# Validation configuration
+VAL:
+  BATCH_SIZE: 32
+  NMS_CONF_THRESH: 0.001
+  NMS_IOU_THRESH: 0.6
+  VAL_FREQ: 1  # Validate every N epochs
+
+# Test/Demo configuration  
+TEST:
+  BATCH_SIZE: 1
+  CONF_THRESH: 0.3
+  IOU_THRESH: 0.45
+  SAVE_RESULTS: true

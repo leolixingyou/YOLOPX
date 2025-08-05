@@ -28,6 +28,7 @@ def _load_modules(module_path):
             module_map[attr_name] = attr
     # Add utility modules that might not be in the common files
     module_map['Select'] = Select
+    module_map['Upsample'] = nn.Upsample
     return module_map
 
 class MCnetFromYAML(nn.Module):

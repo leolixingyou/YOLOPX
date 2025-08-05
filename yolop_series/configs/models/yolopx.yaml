@@ -1,0 +1,12 @@
+# YOLOPX specific configuration  
+# Inherits from default.yaml
+
+MODEL:
+  TYPE: 'yolopx'
+  BACKBONE: 'ELANNet'
+  NECK: 'PaFPNELAN'
+  HEAD: 'anchor_free'  # YOLOX-style detection head
+  
+LOSS:
+  FL_GAMMA: 2.0  # Focal loss for anchor-free
+  USE_L1: true   # L1 loss for bbox regression

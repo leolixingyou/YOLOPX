@@ -1,0 +1,41 @@
+# Base configuration for YOLOP experiments
+experiment:
+  name: "yolop_experiment"  # Will be overridden by specific configs
+  description: "YOLOP multi-task learning experiment"
+  project_name_pattern: "{main_script}_{timestamp}"  # New naming pattern
+  
+# Models to train
+models:
+  - yolop_v1
+  - yolop_v2
+  - yolop_v3
+  - yolopx
+
+# Training parameters
+training:
+  epochs: 1
+  batch_size: 2
+  learning_rate: 0.001
+  workers: 0
+  device: cuda:0
+  seed: 42
+  
+# Dataset parameters
+dataset:
+  train_samples: 200  # Number of training samples (null for all)
+  val_samples: 100    # Number of validation samples (null for all)
+  quick_test: true    # Enable quick test mode
+  
+# Logging parameters
+logging:
+  wandb: true
+  save_interval: 5
+  log_interval: 10
+  
+# System parameters
+system:
+  main_script_priority:  # Priority order for project naming
+    - run_experiment
+    - train_compare
+    - train_unified
+  shared_project: true  # Use shared project directory for all sub-experiments

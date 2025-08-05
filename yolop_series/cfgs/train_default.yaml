@@ -2,12 +2,12 @@
 
 # --- General ---
 GPUS: [0]
-WORKERS: 0
+WORKERS: 0  # 设为0以避免数据加载器卡住
 PIN_MEMORY: true
-PRINT_FREQ: 50
+PRINT_FREQ: 10
 AUTO_RESUME: false
 DEBUG: true
-LOG_DIR: '/workspace/YOLOPX/comparison/v2_baseline'
+LOG_DIR: '/workspace/YOLOPX/yolop_series/runs'
 
 # --- CUDNN ---
 CUDNN:
@@ -46,9 +46,9 @@ TRAIN:
   WARMUP_BIASE_LR: 0.1
   WARMUP_MOMENTUM: 0.8
   BEGIN_EPOCH: 0
-  END_EPOCH: 1
+  END_EPOCH: 3
   VAL_FREQ: 1
-  BATCH_SIZE_PER_GPU: 1
+  BATCH_SIZE_PER_GPU: 2
   SHUFFLE: true
   IOU_THRESHOLD: 0.2
   ANCHOR_THRESHOLD: 4.0

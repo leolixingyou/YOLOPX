@@ -1,7 +1,8 @@
-# BDD100k Dataset Configuration
+# BDD100k Multi-class Dataset Configuration
+# 支持BDD100K的全部10个检测类别
 
 DATASET:
-  DATAROOT: '/workspace/bdd100k/yolop_train/images'
+  DATAROOT: '/workspace/YOLOPX/v1/bdd100k/images'
   LABELROOT: '/workspace/bdd100k/yolop_train/bdd_det/'
   MASKROOT: '/workspace/bdd100k/yolop_train/bdd_seg_gt/'
   LANEROOT: '/workspace/bdd100k/yolop_train/bdd_lane_gt/'
@@ -12,10 +13,12 @@ DATASET:
   SELECT_DATA: false
   ORG_IMG_SIZE: [720, 1280]
   IMAGE_SIZE: [384, 640] # h, w
-  NUM_SEG_CLASS: 2
-  NUMBER_IMAGE: 1000 # Limit number of images for debugging, set to -1 to use all
-  NC: 1  # Number of classes for detection
-  NAMES: ['car']
+  NUM_SEG_CLASS: 2  # 分割任务仍然是2类（背景+可行驶区域）
+  NUMBER_IMAGE: -1  # 使用全部图片
+  NC: 10  # 10个检测类别
+  NAMES: ['person', 'rider', 'car', 'bus', 'truck', 
+          'bike', 'motor', 'traffic light', 'traffic sign', 'train']
+  SINGLE_CLS: false  # 多类模式
 
 AUGMENTATION:
   FLIP: true

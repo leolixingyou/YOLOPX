@@ -1,0 +1,25 @@
+# YOLOP v1 Configuration
+
+MODEL:
+  NAME: 'yolop_v1'
+  BACKBONE: 'CSPDarknet'
+  NECK: 'SPP+FPN+PAN'
+  HEAD_TYPE: 'anchor_based'
+  
+  # Anchor configuration
+  ANCHORS:
+    - [3,9, 5,11, 4,20]      # P3/8
+    - [7,18, 6,39, 12,31]    # P4/16
+    - [19,50, 38,81, 68,157] # P5/32
+  ANCHOR_THRESHOLD: 4.0
+  
+  # Model structure flags
+  STRU_WITHSHARE: false  # Add share block to segmentation branch
+  
+# Override default loss settings for v1
+LOSS:
+  FOCAL_GAMMA: 0.0  # v1 doesn't use focal loss
+  
+# Training specifics for v1
+TRAIN:
+  NEED_AUTOANCHOR: false  # Re-select anchors with k-means

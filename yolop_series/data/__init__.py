@@ -1,2 +1,5 @@
-# Removed relative imports to fix import issues
-# Individual modules should be imported directly
+"""Data module for YOLOP series."""
+
+from .dataset import YOLOPDataset
+
+__all__ = ['YOLOPDataset']

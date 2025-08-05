@@ -1,4 +1,5 @@
-# BDD100k Dataset Configuration
+# BDD100k Single-class Dataset Configuration
+# 只检测车辆相关类别（car, bus, truck都映射为vehicle）
 
 DATASET:
   DATAROOT: '/workspace/bdd100k/yolop_train/images'
@@ -11,12 +12,21 @@ DATASET:
   DATA_FORMAT: jpg
   SELECT_DATA: false
   ORG_IMG_SIZE: [720, 1280]
-  IMAGE_SIZE: [384, 640] # h, w
-  NUM_SEG_CLASS: 2
-  NUMBER_IMAGE: 1000 # Limit number of images for debugging, set to -1 to use all
-  NC: 1  # Number of classes for detection
-  NAMES: ['car']
+  IMAGE_SIZE: [384, 640]  # h, w
+  NUM_SEG_CLASS: 2  # 分割任务仍然是2类（背景+可行驶区域）
+  NUMBER_IMAGE: -1  # 使用全部图片
+  NC: 1  # 单类检测
+  NAMES: ['vehicle']  # 统一的车辆类别
+  SINGLE_CLS: true  # 启用单类模式
+  # 基本增强参数（所有模型共用）
+  SCALE_FACTOR: 0.25
+  ROT_FACTOR: 10
+  TRANSLATE: 0.1
+  SHEAR: 0.0
+  COLOR_RGB: false
+  FLIP: true
 
+# 标准数据增强配置
 AUGMENTATION:
   FLIP: true
   SCALE_FACTOR: 0.25

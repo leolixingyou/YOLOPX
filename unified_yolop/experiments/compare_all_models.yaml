@@ -1,0 +1,25 @@
+# Configuration for comparing all YOLOP models
+# Inherits from base_config.yaml
+
+experiment:
+  name: "compare_all_yolop_models"
+  description: "Compare performance of all 4 YOLOP variants"
+  
+# Models to compare
+models:
+  - yolop_v1
+  - yolop_v2
+  - yolop_v3
+  - yolopx
+
+# Override training parameters for comparison
+training:
+  epochs: 20
+  batch_size: 8
+  learning_rate: 0.001
+  
+# Full dataset for comparison
+dataset:
+  train_samples: null  # Use all training data
+  val_samples: null    # Use all validation data
+  quick_test: false
